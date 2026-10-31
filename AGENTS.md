@@ -39,11 +39,11 @@ Never write code for a row that is not SPECIFIED in this repository's `specs/`. 
 > This file (`AGENTS.md`) is for system-prompt context; the `specs/` tree is the source of truth for architecture and new features.
 
 <!-- Ecosystem Concepts (cross-project, from agent-utilities kernel) -->
-<!-- CONCEPT:AU-OS.deployment.infra-orchestration Ecosystem Topology Map — classified as FrontendPackage -->
-<!-- CONCEPT:AU-KG.memory.background-learning-engine Cross-Session Chat Recall — consumed via kernel API -->
-<!-- CONCEPT:AU-KG.memory.ground-truth-preamble-declaring Project-Aware Context — AGENTS.md auto-loaded by kernel -->
-<!-- CONCEPT:AU-KG.temporal.bi-temporal-memory-layers Cross-Pillar Synergy Engine — topology consumer -->
-<!-- CONCEPT:AU-ECO.toolkit.journey-map-milestones Terminal Agent Launcher — --prompt CLI flag for tmux-spawned one-shot execution -->
+<!-- CONCEPT:MERISTEM-OS.deployment.infra-orchestration Ecosystem Topology Map — classified as FrontendPackage -->
+<!-- CONCEPT:MERISTEM-KG.memory.background-learning-engine Cross-Session Chat Recall — consumed via kernel API -->
+<!-- CONCEPT:MERISTEM-KG.memory.ground-truth-preamble-declaring Project-Aware Context — AGENTS.md auto-loaded by kernel -->
+<!-- CONCEPT:MERISTEM-KG.temporal.bi-temporal-memory-layers Cross-Pillar Synergy Engine — topology consumer -->
+<!-- CONCEPT:MERISTEM-ECO.toolkit.journey-map-milestones Terminal Agent Launcher — --prompt CLI flag for tmux-spawned one-shot execution -->
 - This is a production-grade Rust/Ratatui application distributed through PyPI.
 - Shortcuts are not appropriate. When in doubt, you must work with the user for guidance.
 - Any documentation you write, including in the README.md, should be clear, concise, and accurate like the official documentation of other production-grade native applications.
@@ -198,7 +198,7 @@ alone).
 Working in parallel with other sessions/worktrees? **Reserve a concept id before you write its `CONCEPT:` marker** so two sessions never collide:
 
 ```bash
-agent-utilities --json concept reserve --ns EG-KG.compute.backend   # or a package prefix, e.g. KEY
+agent-utilities --json concept reserve --ns MEDULLA-KG.compute.backend   # or a package prefix, e.g. KEY
 ```
 
 Full protocol (ledger, merge=union, reconcile, MCP/REST): <https://knuckles-team.github.io/agent-utilities/concept_coordination/>
