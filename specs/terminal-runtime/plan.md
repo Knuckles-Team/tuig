@@ -1,5 +1,68 @@
 # TUIG-RUNTIME design and integration plan
 
+Governing spec: [spec.md](spec.md). Rows: [requirements.md](requirements.md).
+
+## Summary
+
+Tuig is the native Rust terminal frontend for Arbora. This plan extends the existing native paths (`main.rs`, `cli.rs`, `lib.rs::ArboraClient`, `headless.rs`) and adds no second runtime, executable or transport authority. Reuse candidates were found by searching `native/tuig/src` first.
+
+## Technical Context
+
+- **Language/Version**: Rust (native executable); Python 3.12 or later for packaging and validation only
+- **Primary Dependencies**: crossterm, the public Arbora HTTP and A2A contracts
+- **Storage**: N/A (short-lived plan binding in memory only)
+- **Testing**: Rust tests under `native/tuig/tests` and in-module tests; the proof level each row names
+- **Target Platform**: Linux, macOS and Windows terminals
+- **Project Type**: CLI and terminal UI
+- **Performance Goals**: input stays responsive during network failure
+- **Constraints**: no Python runtime path; TLS for remote Arbora; bounded view size
+- **Scale/Scope**: one executable, one spec family
+
+## Constitution Check
+
+- R-I One native terminal frontend: pass. All work extends native Rust paths.
+- R-II Arbora owns the task lifecycle: pass. Every operation goes through the Arbora public boundary.
+- R-III Approval fails closed: pass. Unavailable approval refuses; unknown mutation outcomes are not replayed.
+- R-IV Terminal access is preserved: pass. Rows require keyboard, no-color and bounded views.
+
+## Project Structure
+
+- `native/tuig/src/main.rs`, `cli.rs`, `lib.rs`, `headless.rs`, `presentation.rs` (existing)
+- `native/tuig/src/run_inspector_client.rs`, `run_inspector.rs`, `inspector_view.rs` (existing)
+- `native/tuig/src/local_runtime.rs`, `local_session.rs` (existing)
+- `native/tuig/tests` (existing)
+- `specs/terminal-runtime/` (existing)
+
+## Phase 0: Research
+
+No unknowns. The dated sections below record each earlier resolution.
+
+## Phase 1: Design
+
+The architecture, contracts, decisions and dated amendments follow in the sections below, starting at "Existing wiring and architecture". Ownership: Arbora owns the task lifecycle; Tuig owns presentation and operator input.
+
+## Phase 2: Task approach
+
+`tasks.md` follows the rows in dependency order. The producer-side contract row comes first. Rows on independent views run in parallel.
+
+## Complexity Tracking
+
+None. The constitution check passed.
+
+## Build contract
+
+Run `cargo fmt --check`, `cargo clippy` and the Rust tests in CI, and the repository pre-commit hooks locally. Do not duplicate an existing client path. Do not game a scanner.
+
+## Production caller chain
+
+Operator input reaches `main.rs`, then `cli.rs` or the interactive view, then `lib.rs::ArboraClient`, then the Arbora public HTTP and A2A boundary, then a typed result or refusal shown by `presentation.rs`. The sections below give file-level detail per row. Delete any remaining Textual or Python command path when found.
+
+## Cross-repo seams
+
+- `ARBORA-ACP-R001.4` contract `CodingSessionAdmission`: owned in the Arbora repository.
+- `MERISTEM-CONTROL-R010` contract `ClientCapabilityToolset`: owned in the Meristem repository.
+- `MEDULLA-ORCH-VOCAB-R009` `HarnessConfig`: owned in the Medulla repository.
+
 ## Existing wiring and architecture
 
 The current implementation baseline is `4f53111e53f6179312995883f4f62c8bb584d502`.
@@ -355,7 +418,7 @@ request has an unknown outcome until a read reconciles it. The client never retr
 
 Missing producer contracts remain with Arbora. ARBORA-A2A-R001 and
 ARBORA-A2A-R010 own durable streaming and resubscribe. Their spec names the
-AU-CONTROL-001 event port; a current AU owner row was not found.
+MERISTEM-CONTROL-001 event port; a current AU owner row was not found.
 ARBORA-HOST-R009.2 through ARBORA-HOST-R009.6 and ARBORA-HOST-R010.7 own the host/log journey.
 ARBORA-A2A-R005.2 and ARBORA-A2A-R006.2 retain approval and verified-caller prerequisites.
 Coordinate those changes with the parent before touching active producer work.
@@ -479,9 +542,9 @@ Attach point and caller: the handler attaches to the stream loop at `agent_termi
 
 Failure behavior: a gateway loss keeps the pending request, answers nothing, and resumes without granting.
 
-Decision: the client performs file and terminal actions on the host as protocol client capabilities. `ARBORA-ACP` owns admission and permission rules. `AU-CONTROL` exposes the tools. Rejected: a cluster service that mounts or syncs the host checkout. It copies data and needs host credentials on the cluster.
+Decision: the client performs file and terminal actions on the host as protocol client capabilities. `ARBORA-ACP` owns admission and permission rules. `MERISTEM-CONTROL` exposes the tools. Rejected: a cluster service that mounts or syncs the host checkout. It copies data and needs host credentials on the cluster.
 
-Cross-repository rows: `ARBORA-ACP` contract `CodingSessionAdmission`; `AU-CONTROL` contract `ClientCapabilityToolset`; `EG-DECISION-ENGINE` `HarnessConfig` supplies the tool selection. This repository states only `CodingSessionView`.
+Cross-repository rows: `ARBORA-ACP` contract `CodingSessionAdmission`; `MERISTEM-CONTROL` contract `ClientCapabilityToolset`; `MEDULLA-DECISION-ENGINE` `HarnessConfig` supplies the tool selection. This repository states only `CodingSessionView`.
 
 References: none; no paper is cited.
 
