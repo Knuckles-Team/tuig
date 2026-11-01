@@ -1,4 +1,4 @@
-# TUIG-RUNTIME design and integration plan
+# TUIG-RUNTIME — Implementation plan
 
 Governing spec: [spec.md](spec.md). Rows: [requirements.md](requirements.md).
 
@@ -41,29 +41,7 @@ No unknowns. The dated sections below record each earlier resolution.
 
 The architecture, contracts, decisions and dated amendments follow in the sections below, starting at "Existing wiring and architecture". Ownership: Arbora owns the task lifecycle; Tuig owns presentation and operator input.
 
-## Phase 2: Task approach
-
-`tasks.md` follows the rows in dependency order. The producer-side contract row comes first. Rows on independent views run in parallel.
-
-## Complexity Tracking
-
-None. The constitution check passed.
-
-## Build contract
-
-Run `cargo fmt --check`, `cargo clippy` and the Rust tests in CI, and the repository pre-commit hooks locally. Do not duplicate an existing client path. Do not game a scanner.
-
-## Production caller chain
-
-Operator input reaches `main.rs`, then `cli.rs` or the interactive view, then `lib.rs::ArboraClient`, then the Arbora public HTTP and A2A boundary, then a typed result or refusal shown by `presentation.rs`. The sections below give file-level detail per row. Delete any remaining Textual or Python command path when found.
-
-## Cross-repo seams
-
-- `ARBORA-ACP-R001.4` contract `CodingSessionAdmission`: owned in the Arbora repository.
-- `MERISTEM-CONTROL-R010` contract `ClientCapabilityToolset`: owned in the Meristem repository.
-- `MEDULLA-ORCH-VOCAB-R009` `HarnessConfig`: owned in the Medulla repository.
-
-## Existing wiring and architecture
+### Existing wiring and architecture
 
 The current implementation baseline is `4f53111e53f6179312995883f4f62c8bb584d502`.
 `native/tuig/src/main.rs` owns the sole `tuig` executable;
@@ -90,7 +68,7 @@ native CLI / terminal input
     -> typed result/refusal -> native terminal or headless view
 ```
 
-### Native mapping and evidence boundary (2026-10-27)
+#### Native mapping and evidence boundary (2026-10-27)
 
 | Concern | Current native source | Qualification boundary |
 |---|---|---|
@@ -104,7 +82,7 @@ names elsewhere are migration obligations, not instructions to restore deleted
 code. Unmapped behavior must receive native acceptance before its original
 obligation can be closed.
 
-## Contracts and decisions
+### Contracts and decisions
 
 | Boundary | Contract to implement or verify |
 |---|---|
@@ -116,7 +94,7 @@ obligation can be closed.
 | Approval | An `input-required` task is a pending request. Signed approval must be bound to the pending call and human authority in Arbora. Until that public contract and served proof are present, refuse `approvals.*` and direct fleet-grant shortcuts. |
 | Security | Require TLS and a verified credential for remote Arbora. Do not emit bearer values to logs, widgets, saved sessions, test snapshots or exception strings. Local development endpoint rules must be explicit and bounded to loopback. |
 
-## Compatibility and migration
+### Compatibility and migration
 
 Keep the installed native `tuig` base chat path working. Validate the Rust binary
 and PyPI wheel together with the pinned public Arbora contracts. Any generated
@@ -128,11 +106,11 @@ after its public replacement is served. Axil must independently prove the same
 versioned envelope and identity rules. This repository supplies its contract
 expectations, not its acceptance evidence.
 
-## Quality and reuse
+### Quality and reuse
 
 Use the existing native client, normalized task models and Ratatui views. Integrate public generated Arbora contracts without restoring a Python frontend. Keep one transport normalization path and no duplicated request envelope construction. Run the repository's configured Ruff, type and pytest tooling checks, alongside locked Cargo format/test/Clippy gates. The current repository has no configured CCCC, `jscpd` or Dupehound command or threshold. Before acceptance, either add shared ecosystem invocations with an explicit baseline or record an agreed exception. Do not claim a numerical pass without a configured tool. Apply KISS through a single client and one-use confirmation state. No unrelated `/docs` edit is required. Update README/configuration only where command or credential setup changes, and update AGENTS/constitution only if the contract itself changes.
 
-## Structure parity with Overstory (2026-10-11)
+### Structure parity with Overstory (2026-10-11)
 
 The operator requires Tuig to use the same structure as Overstory. The following
 tables preserve the 2026-10-11 historical inventory, not current implementation
@@ -162,9 +140,9 @@ Area decisions, from the terminal code:
 | App surfaces | Yes: `screens/`, owned by `R001.7` | No new row |
 | Identity and access | Yes: bearer caller identity, owned by `R001.2` | No new row |
 
-## Run harness surface (TUIG-RUNTIME-R010)
+### Run harness surface (TUIG-RUNTIME-R010)
 
-### Existing source and planned wiring
+#### Existing source and planned wiring
 
 The native inspector uses `run_inspector_client.rs::ArboraClient::get_run` and
 `run_inspector.rs` to validate run/current-plan projections for `inspector_view.rs`.
@@ -174,7 +152,7 @@ acceptance from these reads. Preserve the remaining generated-envelope, lifecycl
 and served-journey requirements below; no second HTTP stack or direct engine call
 is permitted.
 
-### Model and wire-to-view mapping
+#### Model and wire-to-view mapping
 
 [Arbora run reads](https://github.com/Knuckles-Team/arbora/tree/main/specs/hosted-api-operations) own the served projection.
 `ARBORA-OPS-R021.4.5` serves per-run fields; `.3` and `.4` define aggregate models and operations.
@@ -195,9 +173,9 @@ The engine defines solved tasks and computes aggregates under `MEDULLA-ORCH-VOCA
 Zero-solved cost abstention must display unavailable, never zero or per-run cost.
 Pair-level rates and configuration-level costs must retain separate group labels.
 
-### Current-plan prerequisite and refusals
+#### Current-plan prerequisite and refusals
 
-`MERISTEM-HARNESS-R014.1` through `.5` own mutable `PlanState` outside stored message history.
+The Meristem harness owns mutable `PlanState` outside stored message history.
 Those rows supply no public snapshot read contract today.
 `ARBORA-OPS-R021.4.5` defines the required cross-boundary snapshot and blocks availability until the AU producer exists.
 The client must not derive a plan from messages, reconstruct state, or add a plan writer.
@@ -206,7 +184,7 @@ Run switches, denied refreshes and expired snapshots must clear protected values
 A missing plan must not suppress other independently available trace fields.
 Unknown terminal reasons must display unavailable; the client must never infer success from a final answer alone.
 
-### Evidence and implementation order
+#### Evidence and implementation order
 
 Implement the Arbora producer before the consumer wiring, then field rendering and served acceptance.
 The six existing children retain their served acceptance requirements.
@@ -214,31 +192,31 @@ R010.7 adds only the native state boundary.
 The tests in test-spec.md are planned acceptance paths, not proof of implementation.
 Each row requires its own positive and negative served case through the production UI path above.
 
-### Amendments
+#### Amendments
 
 - 2026-10-11, rows `TUIG-RUNTIME-R003` to `TUIG-RUNTIME-R009`: the operator required Tuig to match Overstory structure. The old state had no structure rows. The new state adds seven rollups. Evidence: the comparison table above.
 
 <!-- spec-definition-patch:r002-consumer-plan -->
-## TUIG-RUNTIME-R002 consumer boundary
+### TUIG-RUNTIME-R002 consumer boundary
 
 The Arbora owner must publish contracts R009.2 through R009.6 and R010.7. Those contracts bind a versioned HostLaunchReceipt, interface mode, workspace and opaque tenant-authorized log reference. Arbora authorizes each read and reconnect. It supplies record order and rotation gaps. These IDs are producer prerequisites. They do not claim existing runtime exports. The terminal never grants authority or reads a local log path. R010.7 places web_logs in HostLaunchRequest, but the current HostLaunchReceipt v1 contract omits it. Arbora must bind the effective boolean into an authenticated receipt or handoff, scoped to host, workspace, tenant and principal. Until Arbora supplies that field, TUI log reads stay disabled. The required host redacted sink remains enabled. This is a producer prerequisite, not a claim of an existing export.
 
 Dependency order:
 1. Keep the original R002 chat transport acceptance in child .1.
 2. Consume the receipt. Validate version, readiness, endpoint, session, workspace, host, mode, tenant, expiry and bound web_logs preference.
-3. Define the adapter signature: `agent_terminal_ui.app.run_host_terminal(receipt: HostLaunchReceipt, *, client: AgentClient, log_reader: HostLogReader | None) -> None`.
-4. Define HostLogReader in agent_terminal_ui.client. Its asynchronous method is `read(log_ref: str, *, cursor: str | None, limit: int) -> HostLogBatch`.
+3. Define the adapter signature: `run_host_terminal(receipt: HostLaunchReceipt, client: &ArboraClient, log_reader: Option<HostLogReader>)` in `native/tuig/src/host_logs.rs:170`.
+4. Define HostLogReader in `native/tuig/src/host_logs.rs:130`. Its asynchronous method is `read` at `host_logs.rs:143`, which returns a `LogBatch`.
 5. Subscribe in terminal and both modes only when the bound web_logs preference is true. A false or absent preference and every web-mode case make zero TUI reads; chat continues. Keep the required host sink enabled. Reuse CommandProcessor.cmd_logs, MainScreen.action_toggle_logs and RichLog.
 6. Bound reads, queued bytes, lines, timeouts and cancellation as requirements.md states. On rotation, expose a tenant-local gap. On denial, clear protected state. Never stop Arbora resources.
 7. Exercise the full served path on a real host, client and TUI. Use the fixed seed and two tenants after producer contracts are available.
 
-The TUI defines consumer interfaces here. It does not claim existing exports. Extend AgentClient, the application, CommandProcessor.cmd_logs and MainScreen.action_toggle_logs. Do not add another router, transport, local gateway or file reader. This slice leaves the TUIG-RUNTIME-R010 inspector obligations intact.
+The TUI defines consumer interfaces here. It does not claim existing exports. Extend `ArboraClient`, the interactive view in `main.rs` and the host log view in `host_log_view.rs`. Do not add another router, transport, local gateway or file reader. This slice leaves the TUIG-RUNTIME-R010 inspector obligations intact.
 
-AU:116 SHA-256 08a22602bd677e4fc39260d058503fa73a2216ad40bbe817c17d3bef256722ef. Map the remaining TUI obligation to R002.2, .3, .5 and .6.
-AU:117 SHA-256 fddbc1b35588be4427396a7aa827414d9d7bba01a8837f905a8b1c9b1eac4694. Map its remaining mode and unified-view obligation to R002.2 through .6, especially .4. R002.1 preserves the parent acceptance. These are definition mappings only.
+Source record 116 SHA256 digest 08a22602bd677e4fc39260d058503fa73a2216ad40bbe817c17d3bef256722ef. Map the remaining TUI obligation to R002.2, .3, .5 and .6.
+Source record 117 SHA256 digest fddbc1b35588be4427396a7aa827414d9d7bba01a8837f905a8b1c9b1eac4694. Map its remaining mode and unified-view obligation to R002.2 through .6, especially .4. R002.1 preserves the parent acceptance. These are definition mappings only.
 <!-- /spec-definition-patch -->
 
-## Amendment 2026-10-26: host receipt consumer fields
+### Amendment 2026-10-26: host receipt consumer fields
 
 The native consumer uses the existing Arbora generation fence name
 `source_generations`, which is the immutable grant tuple checked against each
@@ -256,9 +234,9 @@ records those source and test bindings. The producer response and served mode
 journey remain open. The acceptance owner must close them through the R002
 served matrix in test-spec.md.
 
-## Amendments
+### Amendments
 
-### 2026-10-13: Rust thin-client migration (R002, R001, R008, R010)
+#### 2026-10-13: Rust thin-client migration (R002, R001, R008, R010)
 
 Decision: use Rust with Ratatui for native terminal rendering and Tokio for asynchronous execution. Keep Arbora as
 runtime, policy, authentication, task and operation authority. EG owns graph
@@ -314,7 +292,7 @@ cross-principal cache. Bound bytes and events per subscriber. Disconnect slow su
 explicit gap. Recover through retained replay or an authorized resnapshot. Revocation, logout and expiry invalidate cached data and cursors.
 The broker must not interpret graph state or call MCP tools independently.
 
-### Spec-delivery record
+#### Spec-delivery record
 
 This amendment defines the migration under existing R002, preserves all R001
 approval and R010 run-observation obligations, and extends R008 presentation
@@ -324,7 +302,7 @@ not served deployment proof. The missing producer methods remain blockers.
 Keep pipeline callers and shared hooks at `@main` / `rev: main`. Parent reviews
 and merges the non-draft PR. No version or dependency change is needed here.
 
-### Incumbent coding-terminal coexistence and cutover
+#### Incumbent coding-terminal coexistence and cutover
 
 The goal is a native terminal connected directly to Arbora that replaces
 the incumbent third-party coding terminal. First establish working incumbent-terminal access to the terminal development
@@ -339,11 +317,11 @@ Record exact client and producer heads, served receipts and parity gaps. Require
 operator approval after parity evidence and the performance gates pass. Keep a
 working incumbent-terminal rollback path until the operator accepts the replacement.
 
-Canonical skill: `agent_terminal_ui/skills/tuig-development/SKILL.md`.
+Canonical development guidance: `docs/development.md`.
 Incumbent-terminal provisioning must expose that maintained file, rather than a forked
 copy of its instructions. Provisioning itself is not delivered by this spec.
 
-### Native discovery entry point (R002.7)
+#### Native discovery entry point (R002.7)
 
 The separate Tuig executable at `native/tuig` reads the existing AGENT_URL
 and AGENT_BEARER_TOKEN settings. Its single HTTP client fetches
@@ -361,7 +339,7 @@ denied. A pseudo-terminal smoke passed discovery, refusal/retry, cancellation an
 This evidence covers discovery only. No configured live Arbora endpoint
 was available, and no served streaming or approval acceptance is claimed.
 
-### 2026-10-13: Native task correlation model (R002.1.1)
+#### 2026-10-13: Native task correlation model (R002.1.1)
 
 Reuse AgentClient's task, status-update and artifact-update wire fields. Add a
 native typed model with an immutable task/context/run binding and explicit
@@ -369,7 +347,7 @@ validation before returning an event. Share a redacted JSON fixture with the
 Python normalizer tests. This model has no network or retry behavior. Native
 submission and streaming still require the missing served producer proof.
 
-### 2026-10-13: Unary snapshot delivery and remaining producer gaps
+#### 2026-10-13: Unary snapshot delivery and remaining producer gaps
 
 Rechecked TUI main 4239e3b and Arbora main 331044ed. The authenticated
 Arbora A2A facade serves tasks/get and tasks/cancel. The separate agent-host
@@ -388,7 +366,7 @@ A2AService with upstream test authority and authentication fixtures. That
 check covers the handler boundary, not production identity, tenant isolation,
 TLS or WorkItem authority. It requires no native EG build.
 
-### 2026-10-14: Native unary submission increment (R002.1.3.1)
+#### 2026-10-14: Native unary submission increment (R002.1.3.1)
 
 Arbora main 0120e1f serves ordinary text tasks through message/send.
 It uses request-bound authentication, WorkItem admission and the existing AU dispatch
@@ -409,7 +387,7 @@ R002.1.3 now rolls up this bounded adapter in R002.1.3.1 and the preserved
 original served integration acceptance in R002.1.3.2. Retain every parent criterion. A fixture-only positive response cannot close
 the parent.
 
-### 2026-10-13: Original cancellation criterion
+#### 2026-10-13: Original cancellation criterion
 
 The nearest available R002.1 producer is tasks/cancel. Arbora main 331044ed
 already routes this method to WorkItemA2AAuthority. The native consumer
@@ -418,7 +396,7 @@ request has an unknown outcome until a read reconciles it. The client never retr
 
 Missing producer contracts remain with Arbora. ARBORA-A2A-R001 and
 ARBORA-A2A-R010 own durable streaming and resubscribe. Their spec names the
-MERISTEM-CONTROL-001 event port; a current AU owner row was not found.
+Meristem control event port; no current Meristem owner row exists.
 ARBORA-HOST-R009.2 through ARBORA-HOST-R009.6 and ARBORA-HOST-R010.7 own the host/log journey.
 ARBORA-A2A-R005.2 and ARBORA-A2A-R006.2 retain approval and verified-caller prerequisites.
 Coordinate those changes with the parent before touching active producer work.
@@ -432,22 +410,22 @@ synthetic session and scripted storage. Native EG storage, worker interruption,
 production authentication and TLS remain unqualified. The original six migration
 rows remain pending. Keep the incumbent coding terminal until served parity and cutover acceptance pass.
 
-## One-shot tool-task consumer
+### One-shot tool-task consumer
 
 Component: Terminal task view
 Depends-on: TUIG-RUNTIME-R001.2, TUIG-RUNTIME-R001.3, TUIG-RUNTIME-R001.5, [Arbora A2A](https://github.com/Knuckles-Team/arbora/blob/331044ed7daec51a3633e0a7ea712293b2063bf3/specs/a2a/spec.md)
 
-Code: ../../agent_terminal_ui/terminal_ui.py:10
+Code: ../../native/tuig/src/main.rs:483
 
-Code: ../../agent_terminal_ui/client.py:520
+Code: ../../native/tuig/src/lib.rs:206
 
-Code: ../../agent_terminal_ui/client.py:587
+Code: ../../native/tuig/src/lib.rs:302
 
-Code: ../../agent_terminal_ui/client.py:597
+Code: ../../native/tuig/src/lib.rs:317
 
-Code: ../../agent_terminal_ui/headless.py:163
+Code: ../../native/tuig/src/headless.rs
 
-Existing code: terminal_ui dispatches CLI options; AgentClient owns task transport and the headless path owns streamed rendering.
+Existing code: `run` in `main.rs` dispatches CLI options; `ArboraClient` owns task transport and `headless.rs` owns headless rendering.
 Reachable today: no exact one-shot tool-task command or matching-scope preapproval projection is present.
 The native model and read-only snapshot slices remain separate from the required served one-shot transport.
 
@@ -506,39 +484,32 @@ Decision: reuse the existing task transport and renderer; reject local task exec
 Implement the producer binding first, then the typed input, observation, refusal, evidence and served proof children.
 The planned tests must cover both frontend implementations before native cutover, using identical task and scope fixtures.
 
-## TUIG-RUNTIME-R001.8
+### TUIG-RUNTIME-R001.8
 
 `TUIG-RUNTIME-R001.8`: Extend command/client contract for one-shot background tool-task submission with Arbora preapproval binding gate.
 
-## Coding session (TUIG-RUNTIME-R011)
+### Coding session (TUIG-RUNTIME-R011)
 
 Extended or new: new rollup; no existing rollup owns the coding session (search terms: coding, workspace root, diff, resume).
 
 Data flow, in order:
-- `terminal_ui` (`agent_terminal_ui/terminal_ui.py:10`) opens the session with the workspace root.
-- `AgentClient._rpc_stream` (`agent_terminal_ui/client.py:353`) delivers an agent request.
-- The new `CodingSessionView` handler (`agent_terminal_ui/coding_session.py`) receives it.
-- `WorkspacePolicy.check_operation` (`agent_terminal_ui/workspace_policy.py:177`) checks containment.
+- `main` (`native/tuig/src/main.rs:765`) calls `run` (`main.rs:483`), which opens the session with the workspace root.
+- `ArboraClient` (`native/tuig/src/lib.rs:103`) delivers an agent request.
+- The approval handler in `native/tuig/src/coding_approval.rs` receives it and parses its `Capability` (`coding_approval.rs:10`).
+- The workspace containment check refuses a path outside the root before any host action.
 - The view displays the diff or command, and the person approves.
 - The host performs the local read, write or process, and the result returns to the gateway.
 
 Existing code:
-- `agent_terminal_ui/client.py:338` and `:353`: JSON-RPC over HTTP for agent tasks only; no `fs/` or `terminal/` method.
-- `agent_terminal_ui/app.py:7`: docstring only.
-- `agent_terminal_ui/app.py:572` and `agent_terminal_ui/tui/tool_approval_screen.py:35`: tool approval modal.
-- `agent_terminal_ui/screens/permissions.py:164`: PermissionsScreen, exported at `agent_terminal_ui/screens/__init__.py:13`, never pushed.
-- `agent_terminal_ui/danger.py:229`: command danger level.
-- `agent_terminal_ui/workspace_policy.py:63`, `:177`, `:214`, trust mode `:104`, and `agent_terminal_ui/settings.py:197`.
-- `agent_terminal_ui/workspace_snapshots.py:50`, `:158`, `:229`, `:357`, and `agent_terminal_ui/settings.py:176`.
-- `agent_terminal_ui/session_manager.py:161` and `:303`.
-- `agent_terminal_ui/app.py:695`: resume of a stored chat, reached from `agent_terminal_ui/commands.py:260`.
-- `agent_terminal_ui/headless.py:163` and `opencode.json:1`.
+- `native/tuig/src/lib.rs:103`: `ArboraClient` carries agent tasks over HTTP; it has no `fs/` or `terminal/` method.
+- `native/tuig/src/coding_approval.rs:10` and `:82`: `Capability` and `Choice` for the approval modal.
+- `native/tuig/src/local_session.rs` and `native/tuig/src/acp.rs`: the local text session transport.
 
-Reachable today: no for the coding session. Only `ToolApprovalScreen` (`app.py:608`) and chat resume (`commands.py:260`) are reached by a production caller, and neither serves a file or terminal request. `WorkspacePolicy`, `WorkspaceSnapshotManager`, `SessionManager` and `PermissionsScreen` have no production caller; the grep `git grep -n -E "WorkspacePolicy\(|WorkspaceSnapshotManager\(|SessionManager\(|PermissionsScreen\("` finds none outside their own modules. The search for `fs/`, `terminal/` and `request_permission` finds no handler.
+Reachable today: no production caller outside tests. `native/tuig/src/coding_approval.rs` is exported from `lib.rs:2` and exercised only by `native/tuig/tests/coding_approval.rs`; `main.rs` and `acp.rs` do not call it. The wiring row of R011 must attach it to the session loop.
 
 Types and fields: `CodingSessionView(root, capabilities, session_id, pending)`; capability set closed to six methods; refusal enum of five reasons.
 
-Attach point and caller: the handler attaches to the stream loop at `agent_terminal_ui/app.py:484`; its production caller is the running `terminal_ui` application.
+Attach point and caller: the handler attaches in `run` (`native/tuig/src/main.rs:483`); its production caller is the running `tuig` executable.
 
 Failure behavior: a gateway loss keeps the pending request, answers nothing, and resumes without granting.
 
@@ -548,7 +519,7 @@ Cross-repository rows: `ARBORA-ACP` contract `CodingSessionAdmission`; `MERISTEM
 
 References: none; no paper is cited.
 
-### 2026-10-16: Native run inspector boundary (R010.7)
+#### 2026-10-16: Native run inspector boundary (R010.7)
 
 `native/tuig/src/run_inspector.rs` owns normalized display state.
 The Rust attachment point replaces the Python-named view for this slice only.
@@ -572,7 +543,7 @@ attachment and authorized producer adapters remain deferred.
 
 Boundary tests bind only to `TUIG-RUNTIME-R010.7`. The earlier served requirements
 and their checkboxes stay pending. This child requires no production activation.
-### 2026-10-16: Native approval state boundary (R011.13)
+#### 2026-10-16: Native approval state boundary (R011.13)
 
 `native/tuig/src/coding_approval.rs` is the Rust presentation
 attachment for this slice of `CodingSessionView`. It holds exact pending request content and previews the full diff or command.
@@ -601,12 +572,12 @@ attachment and authorized producer adapters remain deferred.
 Boundary tests bind only to `TUIG-RUNTIME-R011.13`. The earlier served requirements
 and their checkboxes stay pending. This child requires no production activation.
 
-### 2026-10-16: Unambiguous approval previews
+#### 2026-10-16: Unambiguous approval previews
 
 R011.13 escapes literal backslashes as well as control characters. Command,
 path and file previews must distinguish a control character from typed escape
 text. The change grants no authority and performs no host action.
-### 2026-10-16: Bounded native read recovery (R002.1.3.2)
+#### 2026-10-16: Bounded native read recovery (R002.1.3.2)
 
 Implement only unary tasks/get recovery in the existing native client and refresh
 path. Use at most three reads, 100 ms then 200 ms backoff, and a 12-second
@@ -625,9 +596,9 @@ Local HTTP fixtures prove bounded read attempts, exact correlation, denial,
 refresh and zero effect replay. They do not prove production authentication,
 streaming, cursor replay or session continuity. R002.1.3.2 remains pending,
 as do its full served acceptance and cutover.
-## Amendments
+### Amendments
 
-### 2026-10-16: R008.2 native presentation increments
+#### 2026-10-16: R008.2 native presentation increments
 
 Add Tokyo Night, Nord, Gruvbox and Textual Light foreground/background tokens
 from the existing Textual baseline. Keep the Tokyo Night fallback and nonempty
@@ -640,24 +611,24 @@ content. Check Unicode wrapping, short viewports and position retention with
 terminal buffers. These increments do not close full R008.2 parity, runtime
 theme switching, selection, native cutover or performance qualification.
 
-### 2026-10-16: Keep cancellation confirmation visible
+#### 2026-10-16: Keep cancellation confirmation visible
 
 R008.2.2 keeps the cancellation question outside the scroll viewport.
 Navigation cannot hide it. A terminal below 34 columns or five rows must
 resize before confirmation is allowed; dismiss and quit remain available.
-### 2026-10-16: R007 release caller regression
+#### 2026-10-16: R007 release caller regression
 
 Add the prescribed YAML-level test for the shared release workflow at `main`.
 Keep the current tag and manual triggers. A commit pin must fail this test.
 This adds regression evidence only; it does not qualify a release.
 
-### 2026-10-16: R007 regression environment
+#### 2026-10-16: R007 regression environment
 
 The shared CI job must install the declared test extra before it runs the
 release regression. Use its setup-command input with frozen dependencies.
 The shared test step then retains that environment with --no-sync.
 
-### Generated Arbora client acceptance
+#### Generated Arbora client acceptance
 
 R001.6 keeps Python 3.11 base chat support. Its optional operation client requires
 Python 3.12 or later and a compatible generated Arbora wheel. CI installs the
@@ -666,7 +637,7 @@ runs operation and refusal tests. Deterministic UQL examples
 use the provider's `text` and `params` fields. This proves the wheel consumer
 boundary, not a running Arbora server or native query delivery.
 
-### R010.8 native run reads
+#### R010.8 native run reads
 
 The native inspector adapter prefers the registered `runs.get` route.
 If the registry only offers `runs.current_plan`, it reads that plan and marks the summary unavailable.
@@ -678,7 +649,7 @@ The coordinator owns main-loop attachment. AU execution admission and Arbora tra
 The opt-in `test_native_served_reads_pty.py` bridge uses an installed native executable and a live disposable Arbora fixture. It requires the advertised summary route, displays the admitted run plan and checks invalid-bearer refusal. The bridge requires explicit credentials and removes inherited bearer tokens. The fresh invalid-bearer process proves refusal, not clearing of a previously displayed plan in the same process. This bridge alone does not qualify the installed provider stack.
 The Linux x86_64 wheel job pairs the installed candidate with immutable Arbora source and its hash-locked dependencies. The qualification adds a distinct context ID to the fixture input before real durable admission. It does not replace served responses or authority readers. Separate provider and PTY environments preserve both dependency locks. The paired provider and terminal tests must each pass with no skips. Hosted results are required before claiming this acceptance.
 
-### R010.9 native inspector loop attachment
+#### R010.9 native inspector loop attachment
 
 The native loop opens the inspector with `i` from the validated task run binding.
 The inspector owns one asynchronous read. `r` refreshes, `c` aborts locally, and Escape closes it.
@@ -686,7 +657,7 @@ Task read failure and run changes clear protected values and abort pending inspe
 Quit also aborts the read. A periodic redraw expires plans while input is idle.
 Local interaction tests cover this attachment. R010.6 still requires served acceptance through the published producer contracts.
 
-### 2026-10-17: Bounded task stream decoder
+#### 2026-10-17: Bounded task stream decoder
 
 R002.1.3.2.2.1 adds a local SSE consumer in `task_stream.rs`.
 It accepts a request identity and an existing task binding.
@@ -696,7 +667,7 @@ Line and event limits bound retained input. Invalid input stops that decoder.
 Tests cover fragmented UTF-8, line endings, multiline data, limits and mismatched identities.
 This component does not establish producer streaming, HTTP wiring or served recovery acceptance.
 
-### 2026-10-17: Refuse unbound local host logs (R002.2 through R002.6)
+#### 2026-10-17: Refuse unbound local host logs (R002.2 through R002.6)
 
 Current Arbora a32d160a has no checked workspace/session host start port,
 HostLaunchReceipt, or authenticated tenant-filtered HostLogReader. Generic
@@ -711,7 +682,7 @@ Keep normal agent interaction available. This is a zero-read refusal repair,
 not a receipt, reader, reconnect, rotation, tenant-isolation or served-host
 acceptance claim. R002.2 through R002.6 remain pending.
 
-### 2026-10-17: Refuse unsigned plan confirmation
+#### 2026-10-17: Refuse unsigned plan confirmation
 
 R001.3 and R001.5 require a signed exchange for the exact pending call.
 The current Python helper accepts only a plan reference, operation and arguments.
@@ -720,7 +691,7 @@ Refuse this helper before transport, including when caller credentials exist.
 Keep the pending request available after refusal. This repair does not qualify
 signed confirmation, coding request admission or served approval execution.
 
-### 2026-10-17: Authenticated HTTP log subscription (R002.10)
+#### 2026-10-17: Authenticated HTTP log subscription (R002.10)
 
 The injected HTTP reader obtains binding metadata from Arbora's authenticated reference endpoint.
 It retains the exact immutable receipt and rejects copied or changed receipts.
@@ -733,11 +704,11 @@ Cancel subscription on hide and unmount; never close borrowed clients or readers
 The public run_host_terminal adapter preserves ordinary agent interaction.
 Controlled and producer-backed fixtures remain distinct from deployed grant or native parity acceptance.
 
-### Native host logs
+#### Native host logs
 
 Implement TUIG-RUNTIME-R002.11 through the existing Arbora client and native event loop. Reuse authenticated producer endpoints without filesystem reads or credential storage.
 
-### R002.1.3.2.2.3 committed terminal point-read
+#### R002.1.3.2.2.3 committed terminal point-read
 
 The native tasks/get request opts into includeCommittedEvent. A bounded decoder reads only the optional terminalEvent projection.
 It checks the returned task and retained run binding before display. The view labels the actual commit identity as a point-read.
@@ -747,36 +718,36 @@ The projection retains the actual producer kind and physical scope tenant. These
 The scope digest remains 32 bytes; the display labels its hexadecimal conversion. Payload digests remain lowercase hexadecimal text.
 Presentation identifiers have a 512-byte bound. Result references allow 4096 bytes; the complete projection allows 16384 bytes.
 
-### 2026-10-17: Retained host-log metadata and gap display
+#### 2026-10-17: Retained host-log metadata and gap display
 
-TUIG-RUNTIME-R002.11 consumes Arbora HOST-R009.8.2.2 read version two in both
+TUIG-RUNTIME-R002.11 consumes Arbora ARBORA-HOST-R009.8.2.2 read version two in both
 clients. Preserve original source generation, sequence, request, timestamp and
 severity in literal bounded display. Reject malformed metadata and unsupported
 versions. Exact HTTP 409 retention_gap stops polling and clears retained lines
 with a visible gap status. No silent cursor reset, authority inference or task
 action replay is permitted. Live host admission remains separately qualified.
 
-## Amendment: current-plan consumer boundary
+### Amendment: current-plan consumer boundary
 
 R010.4.1 consumes the existing runs.current_plan schema. The run ID must be explicit; no local run or plan is invented. The view bounds items and text, checks UTC validity and uses a monotonic UI timer to clear displayed content at expiry. It provides no effects or producer storage. R010.4 and served inspector acceptance remain open until a composed live producer is qualified.
-## Amendment: served fleet and tenant usage reads
+### Amendment: served fleet and tenant usage reads
 
 R012.4.2 replaces retired MCP/tool listing and usage screen requests with the public generated operation client. Catalog reads stop after ten pages and refuse incomplete or repeated-cursor results. Reload and toggle remain unavailable without a served equivalent. Tenant usage totals retain their supplied metric names; missing totals and per-turn/session breakdowns remain unavailable. R012.6 needs an owner-defined breakdown contract and served display proof; this slice does not close it.
-## Amendment: equivalent spec hook consolidation
+### Amendment: equivalent spec hook consolidation
 
 R004.1 replaces the three separate standard, decomposition and status hooks with the shared spec group. The group also checks trailers when range metadata exists. Keep the existing explicit trailer hook because the group skips that member without range metadata. Preserve prose, stubs and sprawl checks. Full R004 remains open; this amendment removes no blocking coverage.
-### Unavailable management command boundary
+#### Unavailable management command boundary
 
 Arbora's current generated registry has fleet and usage operations, but no
 skills, prompts, knowledge-base, cron or pipeline operation families.
 R012.4.1 stops those registered commands before their legacy REST handlers.
 Served fleet and usage integration remains in R012.4 and R012.6.
 
-### Remaining acceptance rollups
+#### Remaining acceptance rollups
 
 Explicit pending children retain the broader parent acceptance criteria. The status generator rolls up children, so prose-only deferrals are insufficient. These rows record remaining acceptance; they do not weaken a requirement or claim new proof.
 
-### 2026-10-18: Explicit coding grants and read refusals
+#### 2026-10-18: Explicit coding grants and read refusals
 
 R011.1 to R011.3 require granted capabilities and root containment. An omitted
 capability list grants nothing. Read windows reject booleans, non-integers,
@@ -785,14 +756,14 @@ grants and paths outside the root read no bytes, including in trust mode.
 Production admission, approval and request transport remain pending. Existing
 local handler tests use explicit fixture grants; they do not prove authority.
 
-### 2026-10-18: Cost aliases use the served usage view
+#### 2026-10-18: Cost aliases use the served usage view
 
 R012.6 remains open for served turn and session totals. Route `/cost` and
 `/stats` to the existing `/usage` view. Remove cached zero defaults and claims
 of cross-agent history. If the view is absent, display one unavailable notice.
 This repairs command routing; it does not qualify new usage metrics.
 
-### 2026-10-18: Path resolution failures remain refusals
+#### 2026-10-18: Path resolution failures remain refusals
 
 The R011.3 local boundary rejects NUL paths before path resolution. Filesystem
 and symlink resolution errors return typed failures without file reads. Missing
@@ -800,7 +771,7 @@ files, directories and invalid UTF-8 also remain typed read failures. Tests
 verify pending state clears and later valid reads still work. This does not
 close concurrent filesystem races or production admission requirements.
 
-### 2026-10-18: Read-only task observation
+#### 2026-10-18: Read-only task observation
 
 R002.8.2 and R002.8.3 gain `--observe-task TASK_ID` through the existing
 authenticated tasks/get client. Poll the same task and retain its context and
@@ -809,7 +780,7 @@ unavailable. Input-required detaches without approval; interruption stops local
 reads without remote cancellation. No submission or reconnect effect retry is
 permitted. Full one-shot admission, event replay and served proof remain open.
 
-### 2026-10-18: Native read-only observation entry
+#### 2026-10-18: Native read-only observation entry
 
 The Python observation increment did not add a native CLI option. The native
 `--observe-task TASK_ID` path reuses authenticated task reads, binding checks
@@ -819,7 +790,7 @@ interrupts detach; remote cancellation controls are disabled in this mode.
 R002.8.2 and R002.8.3 still require full one-shot admission and replay proof.
 Native arbitrary artifact display remains separate from committed event reads.
 
-### 2026-10-18: Python theme contract
+#### 2026-10-18: Python theme contract
 
 R008 uses Textual theme tokens for primary, secondary, accent, status colors,
 foreground, background, surface and panel. Unknown startup names fall back to
@@ -828,7 +799,7 @@ background contrast floor. Python honors Textual's NO_COLOR presence rule.
 The prescribed Python test checks these boundaries. Native runtime switching,
 full cross-client parity and performance remain in R008.2.3.
 
-### 2026-10-18: Delivery reconciliation and bounded point-read acceptance
+#### 2026-10-18: Delivery reconciliation and bounded point-read acceptance
 
 Merged PRs 66 through 75 close four complete leaves: R012.4.1, R004.1,
 R012.4.2 and R010.4.1. PR 70 changes the supported Python environment only.
@@ -849,7 +820,7 @@ Historical status labels are not proof of broader acceptance. R001.3 currently
 has a VERIFIED label but its current tests prove unsigned confirmation refusal,
 not successful signed-plan resumption. That served criterion remains unproven.
 
-### 2026-10-18: Correct signed-plan verification evidence
+#### 2026-10-18: Correct signed-plan verification evidence
 
 Remove R001.3 verification tags from four refusal tests and one mocked command
 dispatch test. Preserve every test, assertion and historical delivery receipt.
@@ -865,7 +836,7 @@ an absent .config/repo-layout.toml. Gitignore convergence rejects tracked
 .specify files, while AGENTS.md calls that tree canonical specification source.
 Do not delete that source or weaken blocking checks to declare parity.
 
-### 2026-10-18: Reconcile R001.6 with the accepted Python support floor
+#### 2026-10-18: Reconcile R001.6 with the accepted Python support floor
 
 Merged PR 70 adopted the pipelines gate standard: Python 3.12 is the support
 floor; Python 3.14 runs CI and releases. Package metadata, tooling and the
@@ -884,26 +855,26 @@ shared convergence rule permits only its constitution.md file. Resolving this
 conflict requires an approved source migration or an owner-approved shared
 policy change. Preserve the source and blocking checks until that decision.
 
-### Unary card discovery
+#### Unary card discovery
 
 TUIG-RUNTIME-R002.1.6 reuses get_metadata for transport selection. The root card
 path precedes the scoped path. Only HTTP 404 and 405 permit scoped fallback.
 This slice qualifies basic unary conversation, not native prompt startup,
 selected-interface host admission, streaming or cancellation.
 
-### Safe unsupported-stream fallback
+#### Safe unsupported-stream fallback
 
 TUIG-RUNTIME-R002.1.7 tracks raw results before presentation normalization.
 Only an explicit unsupported response before any result permits unary fallback.
 This preserves R002.1.6 discovery. It does not recover uncertain submissions,
 retry transport failures or replay acknowledged tasks.
 
-### 2026-10-18 packaged terminal styles (TUIG-RUNTIME-R001.7)
+#### 2026-10-18 packaged terminal styles (TUIG-RUNTIME-R001.7)
 
 Ship every Textual stylesheet with the Python package. Validate the built wheel outside the source checkout before release; source-tree rendering alone cannot prove package assets are present. Preserve the existing screen and authority behavior.
 
 
-## 2026-10-18: unavailable model selection feedback
+### 2026-10-18: unavailable model selection feedback
 
 R012.2 still requires served profile discovery, preference transport and task
 metadata naming the profile Arbora selected. The current Python client drops
@@ -915,7 +886,7 @@ change the wire request. Tests cover both command paths, unchanged state,
 detail labels and omission of the model argument from the request.
 This feedback repair does not complete R012.2 or qualify served model choice.
 
-## Source quality contract
+### Source quality contract
 
 TUIG-RUNTIME-R015 preserves unresolved source-quality obligations in this owning specification.
 Git retains prior spec sources and historical completion claims.
@@ -925,7 +896,7 @@ Each repair must bind a positive test and a counterexample to its child identifi
 The migration introduces no runtime behavior and closes no child obligation.
 The [shared spec standard](https://github.com/Knuckles-Team/pipelines/blob/main/reference/spec-standard.md) governs future changes.
 
-### Current layout decision
+#### Current layout decision
 
 The approved migration supersedes the earlier statements that migration approval and the layout manifest were absent.
 Canonical requirements and tasks now live in `specs/terminal-runtime/`.
@@ -937,14 +908,14 @@ The current served-client contract supersedes the historical empty-default behav
 R015.44 through R015.47 preserve the method obligations without restoring retired endpoints.
 R012.4.2 governs failures; authenticated empty results remain distinct from unavailable requests.
 
-### Source-quality wiring and served proof
+#### Source-quality wiring and served proof
 
-The terminal command enters `terminal_ui`, then `app.main` at `agent_terminal_ui/app.py:982`. That function creates `AgentApp` and calls `app.run` at line 997.
+The terminal command enters `main` at `native/tuig/src/main.rs:765`, which calls `run` at `main.rs:483`.
 Quality repairs attach at the files each child names; they must preserve this production entry path.
 The final two child rows require wiring inspection and a served integration proof.
 Tooling-only children use their configured check entry points and must reject a failing fixture.
 
-### 2026-10-20: R004.2 follows the current shared gate policy
+#### 2026-10-20: R004.2 follows the current shared gate policy
 
 Pipelines `058643e13f9ad9032ce53c7174eb454380bcccbb` defines the applicable gate policy.
 Its `reference/gate-standard.md` classifies public-surface, root-hygiene and gitignore-convergence as weekly advisory checks.
@@ -962,7 +933,7 @@ Documentation and spec changes run the shared `gates` job in `ci.yml`, which pas
 The aggregate `CI required` job is the one required check; native wheels run on main and nightly only.
 The shared spec group validates names, decomposition, generated status and commit trailers.
 The existing code CI and all existing blocking hook entries remain unchanged.
-### 2026-10-20: Python selection during startup
+#### 2026-10-20: Python selection during startup
 
 R008.2.3.1 preserves the Python view for the presentation comparison.
 R008.2.3.2 retains all remaining presentation and performance criteria.
@@ -976,7 +947,7 @@ and clears real text in the mounted application. A terminal fixture also
 checks startup, a completed reply and clean exit. This repair does not close
 native presentation parity or release performance acceptance.
 
-## Amendment 2026-10-20: native unary reply rendering
+### Amendment 2026-10-20: native unary reply rendering
 
 R002.1.3.2 and R012.1 retain their full served acceptance obligations. Native
 unary task responses currently discard ordinary text artifacts. Display completed
@@ -997,7 +968,7 @@ wrapped row with bounded positions. Existing paging, Unicode wrapping, refresh
 and resize position retention remain in force. This increment does not complete
 selection, dynamic themes, accessibility parity or performance acceptance.
 
-## Amendment 2026-10-20: native turn usage receipt
+### Amendment 2026-10-20: native turn usage receipt
 
 R012.6 remains open: its served usage.read per-turn/session and cost acceptance
 is not replaced by transient task metadata. Consume the producer's optional
@@ -1008,7 +979,7 @@ hiding an otherwise valid reply. No session totals or costs are derived. Reads
 without a receipt clear old usage. HTTP and buffer checks establish client wiring;
 real producer integration and the full usage.read obligation remain required.
 
-## Amendment 2026-10-20: queued unary inference and ordinary task reads
+### Amendment 2026-10-20: queued unary inference and ordinary task reads
 
 R002.1.3.2 and R012.1 retain their full acceptance. Real governed inference took
 11.81 and 69.36 seconds while sharing the vLLM server with another client. Treat
@@ -1023,7 +994,7 @@ credential. Denial stops the read without downgrade or alternate retrieval. Omit
 evidence stays unavailable; ordinary permitted artifacts can still display. This
 changes no grant or scope and does not claim terminal-event authority when absent.
 
-### 2026-10-22: Native runtime baseline palette switching
+#### 2026-10-22: Native runtime baseline palette switching
 
 R008.2.3.2.1 owns a bounded runtime-switching increment. An unmodified F6
 press cycles Tokyo Night, Nord, Gruvbox and Textual Light in that order. Unknown
@@ -1040,7 +1011,7 @@ and its lack of request or task-state mutations are checked by code review.
 Full theme tokens, selection, cross-client served parity and release performance
 remain open under R008.2.3.2.2. No broader acceptance is claimed by this increment.
 
-## Amendment 2026-10-22: credential-free environment example
+### Amendment 2026-10-22: credential-free environment example
 
 TUIG-RUNTIME-R015.43 adds a tracked `.env.example` for local onboarding.
 It contains only the loopback URL and supported startup theme defaults.
@@ -1053,7 +1024,7 @@ its values to the production client factory. It rejects missing defaults, remote
 URLs, credentials and executable shell values. This slice changes no runtime
 configuration loader, authentication policy or other source-quality requirement.
 
-## Amendment 2026-10-22: model client boundary regression coverage
+### Amendment 2026-10-22: model client boundary regression coverage
 
 TUIG-RUNTIME-R012.2 remains open. R012.2.1 replaces the retired in-process model-registry
 and tier-routing tests with coverage of AgentClient.list_configured_models.
@@ -1067,7 +1038,7 @@ qualify current client behavior, not a served models.list operation, governed
 model admission or successful preference transport. Existing command-refusal
 and A2A model-omission tests remain required.
 
-## Amendment 2026-10-22: bounded caller task history
+### Amendment 2026-10-22: bounded caller task history
 
 R012.3.1 replaces retired `/chats` reads with paginated A2A task reads.
 The selected task is read again before its reply is displayed. Its identity
@@ -1079,7 +1050,7 @@ The producer must load prior turns when continuing a context.
 
 R012.3 rolls up the bounded read-only child R012.3.1 and the remaining
 full conversation acceptance R012.3.2. Both are required for parent completion.
-## Native reply and metadata ownership
+### Native reply and metadata ownership
 
 - `TUIG-RUNTIME-R002.1.3.2.2.2.1` owns bounded native unary reply display.
 - `TUIG-RUNTIME-R008.2.3.2.2.3` owns native single-row keyboard scrolling.
@@ -1088,7 +1059,7 @@ full conversation acceptance R012.3.2. Both are required for parent completion.
 - `TUIG-RUNTIME-R002.1.3.2.2.2.3` owns explicit committed-event read enrichment.
 
 These bounded contracts leave every broader parent acceptance criterion in force.
-## Amendment 2026-10-22: shared development hook owners
+### Amendment 2026-10-22: shared development hook owners
 
 TUIG-RUNTIME-R015.29 owns development hook dependency validation. R015.29.1
 binds only the two shared guard consumers. R015.29.2 retains validation of all
@@ -1103,22 +1074,22 @@ flags, including rejection of altered entries. Real pre-commit runs separately
 check clean linked worktrees and refusal cases. This bounded repair does not
 verify every formatter or dependency hook, or close R015.29 or R015.
 
-## Amendment: truthful Python entry-point documentation
+### Amendment: truthful Python entry-point documentation
 
 Describe existing CLI behavior without changing transport or backend authority.
 R015.30.1 covers Python help and examples. R015.41.1 covers directory overrides.
 R015.42.1 covers theme fallback and unbound log refusal. Keep the remaining
 entry-point, environment inventory and served resume requirements open.
 
-## Amendment: nonblocking unary turns
+### Amendment: nonblocking unary turns
 
 Consume Arbora ARBORA-A2A-R001.6 through the existing Python polling path. Bind reads to the returned task and bound the observation period. Keep native parity and served streaming acceptance open under TUIG-RUNTIME-R012.1.2.
 
-## Amendment: native unary observation
+### Amendment: native unary observation
 
 Reuse native task reads and the existing observation interval for admitted submissions. Preserve read-only observer controls and confirmation. The four-hour local bound does not cancel backend execution. Served streaming and crash resume remain open.
 
-## Amendment 2026-10-22: explicit native loopback anonymous tasks
+### Amendment 2026-10-22: explicit native loopback anonymous tasks
 
 TUIG-RUNTIME-R002.1.3.3 adds AGENT_AUTH_MODE=none as an explicit local-only
 opt-in. The default bearer mode retains credential refusals. Anonymous mode
@@ -1133,7 +1104,7 @@ Native transport and CLI refusal tests must cover both modes. Actual EG and
 Arbora execution requires separate served evidence. Fixtures cannot promote
 the full native chat, streaming, recovery or identity rollups.
 
-## 2026-10-22 collapsed public-detail amendment
+### 2026-10-22 collapsed public-detail amendment
 
 R008.2.3.2.2 is a rollup of the bounded consumer slice .1 and residual .2.
 R012.1 is a rollup of the mounted tool repair .1 and served residual .2.
@@ -1147,13 +1118,13 @@ Run reads send the authoritative task ID and run ID together. Arbora checks
 the owning WorkItem and its stored run binding. Neither terminal derives one
 identifier from the other. Native inspector reads retain this same binding.
 
-## Amendment 2026-10-22: Python fold keyboard access
+### Amendment 2026-10-22: Python fold keyboard access
 
 R008.2.3.2.2.2 now rolls up the focused keyboard route .1 and complete
 presentation acceptance .2. F8 leaves composer completion and focus-navigation keys intact.
 A keyboard test binding does not close the retained complete acceptance row.
 
-## Amendment 2026-10-22: command dispatcher qualification
+### Amendment 2026-10-22: command dispatcher qualification
 
 R012.4.3 remains open through retained full-acceptance child .2. Child .1
 covers dispatcher and usage entry points. The signature matrix covers all
@@ -1165,7 +1136,7 @@ matrix or live producer acceptance. Legacy graph, memory, history, model,
 fleet and management paths still need their own served-contract qualification.
 
 
-### Mounted focus dispatch correction
+#### Mounted focus dispatch correction
 
 The earlier mocked app test missed screen ownership: AgentApp has no sidebar
 action, while MainScreen owns it. R012.4.3.1 now requires real mounted keyboard
@@ -1173,7 +1144,7 @@ submission, both sidebar transitions and no model-turn admission. Route the
 command through the screen action. This does not close the full command matrix.
 
 
-### Exact command keyboard routing correction
+#### Exact command keyboard routing correction
 
 Enter must preserve an exact registered command before considering completion.
 The previous filter excluded exact names, so /queue could become /queue:clear.
@@ -1181,7 +1152,7 @@ Only a unique partial command may autocomplete. Mounted keyboard tests preserve
 queued messages and prove that ambiguous input selects no command or model turn.
 This extends R012.4.3.1, not full served command-family acceptance.
 
-## Amendment 2026-10-24: responsive initial task history
+### Amendment 2026-10-24: responsive initial task history
 
 R012.3.1 uses the existing history refresh worker for its initial page.
 Open the modal before reading; retain keyboard close and retry during failure.
@@ -1189,7 +1160,7 @@ Test the real application command route with delayed and refused client reads.
 A closed screen must discard late results even if cancellation is suppressed.
 This is client presentation work; conversation resume and live producer proof remain open.
 
-## Amendment 2026-10-24: reproducible quality acceptance v1
+### Amendment 2026-10-24: reproducible quality acceptance v1
 
 The owner approved replacement of the legacy score clauses in R015.55–R015.69.
 Quality acceptance v1 replaces the undocumented score, GPA, letter-grade and fixed finding-count criteria.
@@ -1210,7 +1181,7 @@ A future rubric change requires another dated amendment and a new contract versi
 Historic analysis remains source history, not a current scan or an authoritative version mirror.
 The historical count is not a verified current inventory. R015.69 requires reconciliation rather than invented missing findings.
 
-## Operator and package qualification (2026-10-24)
+### Operator and package qualification (2026-10-24)
 
 R015.12 and R015.16 require README entry-point coverage and valid local links.
 R015.18 validates the tracked MIT license without changing its terms.
@@ -1224,7 +1195,7 @@ This is installed-client evidence, not live Arbora or native parity acceptance.
 R015.32 and R015.33 have separate historical-preservation qualification below.
 The operator batch does not recreate or alter those artifacts.
 
-## Amendment 2026-10-24: responsive MCP reads
+### Amendment 2026-10-24: responsive MCP reads
 
 R012.4.2 opens the MCP view before fleet reads. A screen-owned worker keeps
 Escape and refresh available. It clears old data before retry and distinguishes
@@ -1233,7 +1204,7 @@ or start the next request, including when cancellation is suppressed. A changed
 client owner invalidates the read. This client presentation repair does not
 close served model choice, conversation resume or per-session usage acceptance.
 
-## Amendment 2026-10-24: literal completion markers
+### Amendment 2026-10-24: literal completion markers
 
 R012.1.1 owns Python reply and terminal-state handling. Normalized text remains
 content even when it contains `[DONE]`. Only a typed `turn_end` event completes
@@ -1241,7 +1212,7 @@ the turn and releases queued work or pending approval. Headless output must
 retain this content and later failures. Mounted and headless regressions extend
 the existing owner; served streaming and cancellation remain open under R012.1.2.
 
-## Amendment 2026-10-24: truthful Python status usage
+### Amendment 2026-10-24: truthful Python status usage
 
 R012.6.2 owns this display correction. The Python status line starts with
 the label "usage unavailable" when both fields lack measurements. Missing, null
@@ -1256,7 +1227,7 @@ content widths, and usage wraps in the remaining space. Model and processing
 labels stay on one bounded line. MainScreen places the composer and status
 in normal vertical flow above the footer, not on the same docked edge.
 
-## Amendment 2026-10-24: bounded inline text files
+### Amendment 2026-10-24: bounded inline text files
 
 R012.5.2 admits a partial text-file slice through the existing Python A2A
 client. Arbora accepts inline base64 UTF-8 text with media type `text/plain`.
@@ -1275,7 +1246,7 @@ check the aggregate staged limits. Bind files to the client and context through
 queued dispatch. A changed owner refuses the turn before network access.
 Clear staged files with `/clear` or interruption. Send the prompt exactly once.
 
-## Amendment 2026-10-24: historical analysis preservation
+### Amendment 2026-10-24: historical analysis preservation
 
 R015.32 and R015.33 retain the JSON and Markdown analysis in immutable Git
 history, not in the current source tree or release version configuration.
@@ -1288,7 +1259,7 @@ This work restores no report and treats no historical conclusion as a current fi
 R015.31 and the quality acceptance v1 rows remain open.
 
 
-## Amendment 2026-10-24: entry-point theme and log documentation
+### Amendment 2026-10-24: entry-point theme and log documentation
 
 R015.42.2 compares the installed Python console entry and compiled native
 terminal with their published environment documentation. Both read AGENT_THEME
@@ -1303,7 +1274,7 @@ Use a wheel whose package bytes match the current source.
 Use a native binary whose build receipt matches the unchanged native tree. Missing optional
 artifacts skip these tests and do not establish acceptance.
 
-## Amendment 2026-10-24: client maintenance qualification
+### Amendment 2026-10-24: client maintenance qualification
 
 R015.48 requires actual configured Ruff and mypy execution against the current
 client source. Preserve the hook configuration and its pinned tool owners.
@@ -1319,7 +1290,7 @@ map and completed acceptance commands. Derive mappings from the client source;
 reject missing or wrong mappings, absent or narrowed receipts, and false live-proof claims.
 R015.52 retains its separate maintenance obligation.
 
-## Amendment 2026-10-24: canonical run inspection
+### Amendment 2026-10-24: canonical run inspection
 
 R010.1 and R012.4.3.2 extend the existing Python run inspector to `runs.get`
 and `runs.events` through the generated Arbora client. Keep `/run plan`
@@ -1335,7 +1306,7 @@ at idle. Do not fall back to legacy REST.
 Old clients and servers may refuse the newer operations. Fixture qualification
 against the current public contract does not establish released-stack, native
 or live producer acceptance. R010.6 and the full command matrix remain open.
-### 2026-10-24: Refreshable documentation screenshots
+#### 2026-10-24: Refreshable documentation screenshots
 
 TUIG-RUNTIME-R016 adds a local capture command for the Python Textual app.
 The existing R005 documentation-layout obligation remains unchanged.
@@ -1345,7 +1316,7 @@ must support a read-only freshness check. Tests must verify repeatable output an
 that capture does not read private sessions or contact a live service. Label all
 images as demo captures, not native-terminal or live-service qualification.
 
-## Amendment 2026-10-24: environment and tool-guard assessment
+### Amendment 2026-10-24: environment and tool-guard assessment
 
 R015.54 assesses the two suggestions in the archived missing-client task.
 Its original next step says “Consider implementing quick wins (.env.example, tool guards)”.
@@ -1356,9 +1327,9 @@ permission work; do not infer a new local grant path.
 Record current environment behavior, runtime refusal evidence and the unresolved
 served approval and workspace-effect obligations in the owning test specification.
 
-## Amendment 2026-10-24: nested execution explorer
+### Amendment 2026-10-24: nested execution explorer
 
-### Existing scope and reuse
+#### Existing scope and reuse
 
 R010 owns run inspection; R012 owns conversational actions.
 R008.2.3.2.2.1 and R012.1.4 retain their delivered public-summary and tool-fold behavior.
@@ -1369,7 +1340,7 @@ Those consumer tests do not establish nested execution, a served dependency grap
 The `/bg` and `/attach` refusals remain until their upstream contracts qualify.
 This amendment introduces no runtime change or release claim.
 
-### Producer contract
+#### Producer contract
 
 Depends-on: [Execution projections](https://github.com/Knuckles-Team/arbora/blob/main/specs/hosted-api-operations/spec.md), [Served child controls](https://github.com/Knuckles-Team/arbora/blob/main/specs/dependency-ordered-release/spec.md)
 
@@ -1392,7 +1363,7 @@ Label partial, unavailable, denied and available-empty graphs distinctly.
 Bound rendered nodes and records through producer pagination and local viewport limits.
 A truncated graph must disclose its partial scope.
 
-### Production attachment points
+#### Production attachment points
 
 | Existing path | Planned extension |
 |---|---|
@@ -1405,7 +1376,7 @@ These are planned attachments, not claims that production callers already reach 
 The existing generated-client admission remains authoritative.
 No direct engine access, local agent runner, scheduler, mailbox or transcript store is added.
 
-### Navigation and public detail
+#### Navigation and public detail
 
 Display hierarchy edges labelled `spawned_child` separately from dependency edges labelled `depends_on`.
 A shared dependency may have more than one incoming edge without acquiring invented spawn parents.
@@ -1425,7 +1396,7 @@ Absent transcript capability means unavailable history, not an empty successful 
 Unknown fields and private reasoning must not appear.
 Render untrusted control sequences inertly through the existing literal-display safeguards.
 
-### Targeted actions and failure states
+#### Targeted actions and failure states
 
 `can_read_events`, `can_read_transcript`, `can_message_active` and `can_continue_completed` default to false.
 Capabilities describe availability; the backend must authorize every request again.
@@ -1438,7 +1409,7 @@ A lost response remains unknown; reconnect must reconcile the original operation
 Cancellation uses only an admitted cancellation target and reports acknowledgement separately from terminal state.
 The backend defines cancellation scope; the client must not infer recursive cancellation from a drawn subtree.
 
-## Amendment: bounded flat native graph (2026-10-24)
+### Amendment: bounded flat native graph (2026-10-24)
 
 This source-only slice contributes to R010.11 and R010.12 without closing them.
 Reuse the native inspector and its registry-backed run transport. The `g` key
@@ -1462,7 +1433,7 @@ compilation, Clippy and a compiled terminal journey remain required before nativ
 qualification. These tests do not prove nested execution, transcripts, child
 messaging, a released producer, or the held release prerequisite.
 
-## Amendment: bounded flat Python graph (2026-10-24)
+### Amendment: bounded flat Python graph (2026-10-24)
 
 R010.11 and R010.12 start with `/run graph <run_id> [task_id]` in the Python terminal.
 The command requires an explicit run ID. Only Arbora can resolve an omitted root task ID.
@@ -1478,7 +1449,7 @@ Compiled-terminal qualification still requires the exact-checkout PTY journey be
 Nested execution, public records and released-stack proof remain open.
 This slice leaves existing `/run` behavior and its separate canonical-read migration unchanged.
 
-## Amendment: compiled-native flat graph journey (2026-10-24)
+### Amendment: compiled-native flat graph journey (2026-10-24)
 
 Extend the existing native public-details PTY harness for R010.11 and R010.12.
 The native CI job builds its checkout, then runs both terminal journeys with that
@@ -1495,7 +1466,7 @@ parameters, anonymous reads and no effect or fallback requests.
 This is compiled client/terminal proof, not a production Arbora service or
 released-stack receipt. Nested execution and broad acceptance rows remain open.
 
-## Amendment 2026-10-24: Canopy and spatial flat-DAG presentation
+### Amendment 2026-10-24: Canopy and spatial flat-DAG presentation
 
 Extend existing theme registration and native presentation tokens. Canopy is an
 explicit option, not a replacement default. Adapt the nature palette to opaque
@@ -1518,7 +1489,7 @@ R008.3.2 and R010.12.1.2 retain every pending parent criterion. Generated
 source bindings are not evidence that a native executable or PTY test ran.
 
 
-## Amendment 2026-10-24: resize/input readiness
+### Amendment 2026-10-24: resize/input readiness
 
 The first Canopy hosted run passed 184 native tests and Clippy, but failed the
 existing rapid resize/navigation PTY assertion. A previous run had passed it.
@@ -1534,7 +1505,7 @@ case that queues resize and input together. Send no sentinel to release input.
 R008.4.1 records the source correction. R008.4.2 requires repeated current
 compiled PTY evidence. An older executable is useful only for diagnosis.
 
-## Amendment 2026-10-24: installed startup CI qualification
+### Amendment 2026-10-24: installed startup CI qualification
 
 Extend the existing native CI job after its compiled PTY journeys. Build the
 Python wheel from the same checkout and replace only the editable project in
@@ -1547,7 +1518,7 @@ the result and provenance receipts. This gate wiring provides no passing receipt
 R008.3.2 remains open until the matching hosted job passes. Cross-terminal,
 served-service and release qualification remain separate.
 
-## Amendment 2026-10-24: retain hierarchy acceptance in rollups
+### Amendment 2026-10-24: retain hierarchy acceptance in rollups
 
 Completing the bounded flat-map child must not close complete hierarchy acceptance.
 R010.12.2 retains every unmet parent criterion in the generated rollup.
@@ -1558,7 +1529,7 @@ R008 and R010 paths, their retained acceptance, and the qualified bounded childr
 Future broad acceptance requires its own evidence and an explicit audit update.
 No terminal runtime or dependency change belongs in this correction.
 
-## Amendment 2026-10-25: Python bound turn receipts
+### Amendment 2026-10-25: Python bound turn receipts
 
 R012.6.3 consumes the existing metadata.arbora.usage receipt. Reuse the client's
 public task/run binding checks and normalized turn_end path. Display current turn
@@ -1573,7 +1544,7 @@ The native receipt row R012.6.1 and tenant usage.read path remain unchanged.
 R012.6.2 stays open for served session totals, cost and complete producer
 acceptance; source and HTTP fixtures cannot establish that acceptance.
 
-## Amendment 2026-10-25: visible native Canopy sage
+### Amendment 2026-10-25: visible native Canopy sage
 
 R008.3.1 must render sage, not only define a token. Extend ThemeSelection with
 a border style and apply it to the existing task, inspector, map, log and
@@ -1587,7 +1558,7 @@ Fresh native compilation, PTY and installed startup evidence remains required
 under R008.3.2. Earlier two-color receipts do not qualify this source change.
 Broad presentation, native parity and served acceptance remain open.
 
-## Amendment 2026-10-25: requests without client modes
+### Amendment 2026-10-25: requests without client modes
 
 R002 owns ordinary conversation submission in both terminal implementations.
 The interface must not ask users to select ask, plan, chat, code or build modes.
@@ -1612,7 +1583,7 @@ consumer or visible control. Do not rewrite personal configuration merely to
 remove an obsolete selector. Regression coverage proves that stored and
 environment preferences cannot select request handling.
 
-## Amendment 2026-10-25: one native tuig CLI
+### Amendment 2026-10-25: one native tuig CLI
 
 The operator selects one Rust/Ratatui executable, `tuig`, distributed through
 PyPI without a Python frontend or compatibility launcher. This supersedes the
@@ -1639,7 +1610,7 @@ installed executable, exclude Python runtime modules, and record locked build
 inputs and artifact provenance. Unsupported platforms are not advertised as
 qualified. Packaging does not require a Python runtime shim.
 
-The runtime retirement removes `agent_terminal_ui/`, its Python-only regression
+The runtime retirement removed the Python runtime package, its Python-only regression
 harness and Textual screenshot capture. Native PTY tests, shared wire fixtures
 and repository-governance checks remain. The license moves to the repository
 root. Development guidance moves to `docs/development.md`; no importable Python
@@ -1654,7 +1625,7 @@ the Python-only Dockerfile and requirements export rather than advertise an
 untested container path. Release qualification remains required before shipping.
 
 
-## Amendment 2026-10-25: local ACP text transport
+### Amendment 2026-10-25: local ACP text transport
 
 R011.14 adds an explicit local backend to the single Rust frontend. Central
 Arbora A2A and HTTP remain the default. The internal command is
@@ -1690,7 +1661,7 @@ implements none of those effect grants; existing native approval state remains
 a presentation model until its production attachment is qualified.
 
 
-## Amendment 2026-10-25: installed local helper lookup
+### Amendment 2026-10-25: installed local helper lookup
 
 R011.14 resolves the actual native executable before selecting its internal
 backend. Canonicalize `current_exe` and inspect the sibling `arbora-acp` with
@@ -1706,7 +1677,7 @@ filtering. This adds no shell, installer, frontend, dependency or automatic
 remote fallback. Scripted installed-layout tests qualify helper lookup only;
 they do not establish a released local extra or installed Arbora/AU compatibility.
 
-## Amendment 2026-10-25: native interactive unary composition
+### Amendment 2026-10-25: native interactive unary composition
 
 R012.1.3 now attaches one interactive prompt to the existing native unary path.
 With no selected task or command-line prompt, open a bounded text composer.
@@ -1723,14 +1694,14 @@ upstream, with no ask, plan or code selector. Native unit and actual executable
 PTY fixtures qualify input routing and one-shot transport, not live producer
 streaming, approval attachment or installed-package parity.
 
-## Amendment 2026-10-25: display name
+### Amendment 2026-10-25: display name
 
 Use Tuig as the client display name in the primary UI, package description,
 and documentation entry points. Keep repository, distribution, import, command,
 protocol and storage identifiers unchanged. Arbora remains the backend and
 ecosystem name. Existing image assets and capture provenance remain unchanged.
 
-## Amendment 2026-10-25: interactive local ACP text sessions
+### Amendment 2026-10-25: interactive local ACP text sessions
 
 R011.14 adds explicit interactive local sessions beside the unchanged headless
 one-shot command. Reuse the native ACP client, helper lookup and owned-child
@@ -1751,7 +1722,7 @@ resizing and cleanup. An installed Arbora pairing must prove completed history,
 exclusion of canceled turns and close. This does not qualify central streaming,
 durable continuation or coding-session host effects.
 
-## Amendment 2026-10-25: native presentation acceptance ownership
+### Amendment 2026-10-25: native presentation acceptance ownership
 
 R008, R008.1, R008.2, R008.3 and R008.3.1 follow the existing native-only
 CLI decision. Rust/Ratatui owns their runtime presentation. Remove the
@@ -1768,7 +1739,7 @@ native PTY, gallery, packaging and repository test harnesses remain valid.
 R003, R016 and R012.6.3 require separate acceptance reconciliation; this
 amendment neither removes them nor claims their native acceptance.
 
-## Amendment: explicit context continuation (2026-10-27)
+### Amendment: explicit context continuation (2026-10-27)
 
 TUIG-RUNTIME-R012.3.2.1 adds a native `--continue CONTEXT_ID --prompt TEXT`
 entry point. Accept only `a2a-context-` followed by 64 lowercase hexadecimal
@@ -1788,3 +1759,29 @@ server reached after discovery. The server owns history selection and refusal.
 This source slice does not close R012.3.2. Hosted native checks, the actual
 client/backend restart journey and the full history-selection UI remain open.
 Agent Card stateTransitionHistory does not advertise model-history continuation.
+
+## Phase 2: Task approach
+
+`tasks.md` follows the rows in dependency order. The producer-side contract row comes first. Rows on independent views run in parallel.
+
+## Complexity Tracking
+
+None. The constitution check passed.
+
+## Build contract
+
+The CI native job (`.github/workflows/ci.yml:120-128`) runs on Rust 1.96.0 with `--locked`:
+`cargo fmt --check` (zero diffs), `cargo test` (zero failures), `cargo clippy --all-targets -- -D warnings` (zero warnings) and `cargo build --bin tuig`.
+The shared pipelines gates run through `gates_pipeline.yml@main` (`ci.yml:50`, `ci.yml:71`) and the repository pre-commit hooks run locally; each gate carries its own threshold in pipelines.
+The `spec` hook group (`.pre-commit-config.yaml`) enforces spec-standard, plan-conformance, spec-decomposition, spec-status and spec-trailers with zero findings.
+A change must not duplicate an existing client path. A change must not game a scanner.
+
+## Production caller chain
+
+Operator input reaches `main.rs`, then `cli.rs` or the interactive view, then `lib.rs::ArboraClient`, then the Arbora public HTTP and A2A boundary, then a typed result or refusal shown by `presentation.rs`. The sections below give file-level detail per row. Delete any remaining Textual or Python command path when found.
+
+## Cross-repo seams
+
+- `ARBORA-ACP-R001.4` contract `CodingSessionAdmission`: owned in the Arbora repository.
+- Contract `ClientCapabilityToolset` for `TUIG-RUNTIME-R011`: owned in the Meristem repository; its public row is not yet defined.
+- `MEDULLA-ORCH-VOCAB-R009` `HarnessConfig`: owned in the Medulla repository.
