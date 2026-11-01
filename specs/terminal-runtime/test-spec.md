@@ -19,7 +19,91 @@ this documentation reconciliation advances no delivery state.
 | TUIG-RUNTIME-R001.4 | Mock error envelope, timeout, disconnect and malformed JSON. | Typed success renders and chat remains functional. | Every failure renders an error. The session stays usable and never reports success. |
 | TUIG-RUNTIME-R001.5 | Pending A2A task with `input-required` and approval metadata | Pending request is displayed. No effect is asserted | `approvals.*`, fleet grant, missing signed exchange and wrong pending-call binding are refused. Enabling approval requires separate served receipt |
 | TUIG-RUNTIME-R001.6 | Clean Python 3.12 base environment and supported optional-client environment | Base chat works. Compatible optional install enables `/op` | No compatible client yields clear `CLIENT_UNAVAILABLE` and no untyped fallback |
-| TUIG-RUNTIME-R001.7 | Route and pilot tests | Legacy screens still render or use served replacement | No `agent_utilities.knowledge_graph` import, duplicate transport or invisible command fallback |
+| TUIG-RUNTIME-R001.7 | Route and pilot tests | Legacy screens still render or use served replacement | No Meristem knowledge-graph import, duplicate transport or invisible command fallback |
+| TUIG-RUNTIME-R001.8 | Compiled-native PTY test against a served Arbora fixture | Preapproval binding gates permission suppression and queued, running and completed states display | Missing, expired, revoked or mismatched preapproval does not bypass the permission prompt |
+| TUIG-RUNTIME-R011.1 | Rust unit test of CodingSessionView with each of the six capabilities and one unknown method | The view holds root, capabilities, pending request and session ID, and accepts exactly the six methods. | An unknown method maps to a typed CAPABILITY_NOT_GRANTED refusal and the view holds no policy. |
+| TUIG-RUNTIME-R011.2 | Rust integration test: scripted ACP stream sends fs/read_text_file for a temp-dir file | A read inside the root returns the file text and prompts zero times. | A capability outside producer-granted scope is refused and no local policy grants it. |
+| TUIG-RUNTIME-R011.3 | Rust integration test with a temp root, a parent-segment path, an absolute path and an outward symlink | A path inside the root resolves and is served. | Parent segments, absolute paths and symlinks leaving the root are refused with PATH_OUTSIDE_ROOT and zero bytes read or written. |
+| TUIG-RUNTIME-R011.4 | Rust integration test: scripted write request over a temp file, approve then deny | The diff of old and new text is shown first, and approval writes the new bytes once. | A denied write leaves the file bytes unchanged and sends an APPROVAL_DENIED error. |
+| TUIG-RUNTIME-R011.5 | Rust integration test: scripted terminal/create request with a marker command | Command line, working directory and danger level are displayed before approval, then the command runs once. | A denied command spawns zero processes. |
+| TUIG-RUNTIME-R011.6 | Rust integration test: approved terminal/create running a multi-line then oversized output command | Output arrives in order during the run and wait_for_exit returns the exit status. | Output above the limit carries the truncation marker, and terminal/kill ends the process. |
+| TUIG-RUNTIME-R011.7 | Rust integration test: restart the client against a producer fixture with durable session support | A resumed session reattaches and displays the same pending write unanswered. | Resume grants nothing and applies no change before approval. |
+| TUIG-RUNTIME-R011.8 | Rust integration test: scripted ACP stream carrying one host request | A request in the stream reaches CodingSessionView exactly once. | A foreign session or duplicate request ID does not reach the view. |
+| TUIG-RUNTIME-R011.9 | Rust integration test: run the binary in a temp directory against a scripted ACP backend | The default root is the current directory and session/new carries it. | An explicit root argument overrides the default. No second entry point exists. |
+| TUIG-RUNTIME-R011.10 | Rust integration test: one scripted request per refusal reason | Each reason produces one JSON-RPC error response with its typed code. | Each refusal causes zero host effects, and an untrusted root opens no session. |
+| TUIG-RUNTIME-R011.11 | Native integration test in native/tuig/tests/coding_session.rs driving CodingApprovalState::decide with a write request holding a secret-looking body and environment value. | DecisionRecord text names session, method, path or command digest, decision and decider. | Record text and rendered buffer must not contain file body, environment value or credential. |
+| TUIG-RUNTIME-R011.12 | Native PTY test in native/tuig/tests/coding_session.rs with a temporary root and a fake gateway sending write requests. | Diff is displayed, approval writes the file inside the root. | A path outside the root is refused and no file is created outside the root. |
+| TUIG-RUNTIME-R012.5.2 | Native integration test in native/tuig/tests/file_parts.rs against a served fixture accepting file parts. | One PNG part with its media type reaches the fixture. | An oversized file is refused with zero requests. |
+| TUIG-RUNTIME-R015.1 | Python source scan of native/tuig/src/*.rs plus counterexample fixture | Every function body is within the shared line limit | A synthetic oversized function fails with its file and line |
+| TUIG-RUNTIME-R015.2 | Python source scan of cli.rs and main.rs helpers plus counterexample | Argument processing stays within the shared complexity limit | A synthetic over-branched function fails |
+| TUIG-RUNTIME-R015.3 | Python source scan of lib.rs and run_inspector_client.rs plus counterexample | Client methods stay within the shared complexity and responsibility limits | A synthetic over-complex method fails |
+| TUIG-RUNTIME-R015.4 | Python source scan of main.rs event loop plus counterexample | Key and mouse handlers stay within the shared complexity limit | A synthetic over-complex handler fails |
+| TUIG-RUNTIME-R015.6 | Python source scan of composer.rs plus counterexample | Composer methods stay within the shared complexity limit | A synthetic over-complex method fails |
+| TUIG-RUNTIME-R015.7 | Python source scan of native/tuig/src/*.rs plus counterexample | No function exceeds the shared nesting depth | A synthetic deeply nested function fails |
+| TUIG-RUNTIME-R015.8 | Python configuration check of ci.yml and .pre-commit-config.yaml plus counterexample | Shared gates run with rust enabled and the secret hooks present | Removing a secret hook or skipping it in skip-hooks fails |
+| TUIG-RUNTIME-R015.9 | Python scan of Rust and pytest test bodies plus counterexample | Each test contains an assertion on an observable result | A synthetic test with no assertion fails |
+| TUIG-RUNTIME-R015.10 | Python README parse against tuig --help output plus counterexample | Each documented command and flag is accepted by the CLI | A documented unknown flag fails |
+| TUIG-RUNTIME-R015.11 | Python README parse plus counterexample | README names the Rust/Ratatui purpose and the install and help commands | A README without Installation or purpose fails |
+| TUIG-RUNTIME-R015.12 | Python README parse against CLI_HELP plus counterexample | README documents interactive, --prompt, --observe-task and --headless | Removing one entry point from README fails |
+| TUIG-RUNTIME-R015.13 | Python README heading and link parse plus counterexample | Each top-level section is linked from a navigation list | An unlisted section fails |
+| TUIG-RUNTIME-R015.14 | Python documentation parse and lockfile check plus counterexample | Docs use --frozen and --locked and uv.lock is tracked | An unlocked command or missing lockfile fails |
+| TUIG-RUNTIME-R015.15 | Python README and docs parse plus counterexample | README links the architecture page and names the native entry path and Arbora boundary | Omitting the link or boundary fails |
+| TUIG-RUNTIME-R015.16 | Python README link resolution plus counterexample | Each relative README link targets an existing file | A link to a missing file fails |
+| TUIG-RUNTIME-R015.17 | Python CONTRIBUTING.md parse plus counterexample | Commands match ci.yml native steps and each source-map path exists | A source-map path that does not exist fails |
+| TUIG-RUNTIME-R015.18 | Python metadata and file check plus counterexample | LICENSE is tracked and pyproject, Cargo and README agree on MIT | A missing LICENSE or mismatched license fails |
+| TUIG-RUNTIME-R015.19 | Python source scan of native/tuig/src/*.rs plus counterexample | Each module is within the shared line limit | A synthetic oversized module fails |
+| TUIG-RUNTIME-R015.20 | Python harness reading native/tuig/src; synthetic Rust source fixture | Every impl block in the real tree is within the shared threshold. | A synthetic impl above the threshold is reported with file and type. |
+| TUIG-RUNTIME-R015.21 | Python harness scanning use lines in native/tuig/src | presentation.rs imports no client or transport symbols. | A synthetic presentation module importing ArboraClient is rejected. |
+| TUIG-RUNTIME-R015.22 | Python harness scanning native/tuig/src for env reads outside main.rs | Environment reads occur only in main.rs; library constructors take arguments. | A synthetic library module calling env::var is rejected. |
+| TUIG-RUNTIME-R015.23 | Python harness comparing lib.rs mod list with docs/architecture.md | Every public module is named in the architecture page. | A synthetic undocumented module is reported. |
+| TUIG-RUNTIME-R015.24 | Python harness reading docs/concepts.md and native/tuig/src | Each declared concept resolves to an existing source file. | A concept naming a missing file is reported. |
+| TUIG-RUNTIME-R015.25 | Python harness over docs/ and native/tuig/src | No reference lacks a declaration. | A synthetic reference to an undeclared concept fails. |
+| TUIG-RUNTIME-R015.26 | Python harness scanning native/tuig/tests/*.rs and tests/test_native_*.py | Every test file binds at least one existing row ID. | A synthetic test file without a binding is reported. |
+| TUIG-RUNTIME-R015.27 | Python harness scanning native/tuig/src | Each function above the threshold has a spec comment naming an existing row. | A long synthetic function without a comment is reported. |
+| TUIG-RUNTIME-R015.28 | Python harness invoking cargo with the CI arguments (skipped without a toolchain, reported as skipped) | Both commands exit zero on the real tree. | A synthetic warning in a temporary copy makes clippy fail. |
+| TUIG-RUNTIME-R015.29.2 | Python harness running real pre-commit installs of the remaining hooks | Every remaining hook installs at its pinned SHA and executes cleanly. | A hook with a floating or altered rev is rejected. |
+| TUIG-RUNTIME-R015.31 | Python harness reading .bumpversion.cfg, pyproject.toml, native/tuig/Cargo.toml, docs/concepts.md and uv.lock | All mirrors carry the configured current version. | A stale Cargo.toml version is reported. |
+| TUIG-RUNTIME-R015.34 | Python harness measuring native/tuig/tests and tests | Every test file is within the threshold. | A synthetic oversized test file is reported. |
+| TUIG-RUNTIME-R015.35 | Python harness counting test items | Every file is within the threshold. | A synthetic file above the threshold is reported. |
+| TUIG-RUNTIME-R015.36 | Python harness checking each layer is non-empty and placed correctly | All three layers exist in their directories. | A served journey placed under native/tuig/tests is reported. |
+| TUIG-RUNTIME-R015.37 | Python harness scanning native/tuig/tests for `mod support` and env isolation | Integration tests use the shared support module and clear the environment before running the binary. | A test starting the binary without clearing the environment is reported. |
+| TUIG-RUNTIME-R015.38 | Python harness scanning native/tuig/tests | No test file duplicates listener setup. | A synthetic test binding TcpListener directly is reported. |
+| TUIG-RUNTIME-R015.39 | Python harness scanning test bodies | Every test body contains an assertion. | A synthetic test body without an assertion is reported. |
+| TUIG-RUNTIME-R015.40 | Python harness scanning assertions in native/tuig/tests and tests | Each test compares a concrete value. | A synthetic test with only is_ok() is reported. |
+| `TUIG-RUNTIME-R015.41.2` | Python file scan of native/tuig/src env reads against docs/configuration.md | Every read name appears in the reference table and in help | A synthetic undocumented variable name fails the scan |
+| `TUIG-RUNTIME-R015.42.1` | Rust unit test in presentation.rs plus Python docs assertion | Unknown theme name renders the tokyo-night palette; docs state the fallback | A documentation page without the fallback sentence fails |
+| `TUIG-RUNTIME-R015.42.2` | PTY test with the compiled tuig binary and pyte screen capture | Named theme, unknown-name fallback and NO_COLOR values render the expected cell colors | A documentation claim naming a retired Python entry point fails |
+| `TUIG-RUNTIME-R015.43` | Python parse of .env.example | Only AGENT_URL and AGENT_THEME with loopback values | Counterexamples with a credential, remote URL or shell expansion fail |
+| `TUIG-RUNTIME-R015.48` | Python YAML parse of .github/workflows/ci.yml | native-checks runs cargo fmt --check and clippy with -D warnings and --locked | A copy without the clippy step or warning denial fails |
+| `TUIG-RUNTIME-R015.52` | Python YAML parse of ci.yml | native-checks runs cargo test --locked and the junit no-skip assertion | A workflow lacking the test step or tolerating skips fails |
+| `TUIG-RUNTIME-R015.54` | Python document check plus existing Rust coding-approval test | Assessment cites the example and the native refusal path | Assessment text claiming served approval or omitting scope fails |
+| `TUIG-RUNTIME-R015.55` | Python gate-config and tree scan | Metadata, layout and public-surface hooks are configured for both stages | A config missing the public_surface table or spec hook fails |
+| `TUIG-RUNTIME-R015.56` | Python gate-config and tree scan | Full tree measured against R015.1-R015.7, R015.19-R015.20 and R015.34-R015.35 | A changed-file-only baseline is rejected |
+| `TUIG-RUNTIME-R015.57` | Python gate-config and tree scan | Source, secret and dependency scans are configured against Cargo.lock and uv.lock | A configuration without a dependency scan fails |
+| `TUIG-RUNTIME-R015.58` | Python gate-config and tree scan | Line and branch coverage are each at least 80 percent for native and harness code | Heuristic scores or test counts are rejected as evidence |
+| `TUIG-RUNTIME-R015.59` | Python gate-config and tree scan | Strict documentation build, link check and example checks pass | A broken link or stale example fails; missing checks remain open |
+| `TUIG-RUNTIME-R015.60` | Python gate-config and tree scan | Presentation modules do not import transport internals; every module has a recorded responsibility | A presentation module that imports client internals fails |
+| `TUIG-RUNTIME-R015.61` | Python gate-config and tree scan | Every declaration has an implementation reference and test binding | An orphan declaration or missing binding fails |
+| `TUIG-RUNTIME-R015.62` | Python gate-config and tree scan | All hooks are pinned by revision and run at both stages | A skipped hook or unpinned revision fails |
+| `TUIG-RUNTIME-R015.63` | Python gate-config and tree scan | Collection, execution and outcome of every test are recorded | An unexplained skip or expected failure fails |
+| TUIG-RUNTIME-R015.64 | pytest reads .bumpversion.cfg, pyproject.toml, docs/concepts.md, uv.lock and Cargo.toml | every authoritative version mirror equals the current version | a drifted mirror or a stale lock fails; historical reports are ignored |
+| TUIG-RUNTIME-R015.65 | pytest scans native/tuig/tests and tests for spec bindings and fixtures | every test has a binding, shared fixtures and a specific assertion | a test with only counts or no assertion on a wrong result fails |
+| TUIG-RUNTIME-R015.66 | pytest parses main.rs env reads, CLI_HELP, docs/configuration.md and .env.example | each read variable is documented with its default | an undocumented or stale variable fails |
+| TUIG-RUNTIME-R015.67 | pytest reads the 17-domain matrix and rows R015.55-R015.66 | every domain and every row has passing evidence | one failed or missing domain fails acceptance; no averaging |
+| TUIG-RUNTIME-R015.68 | pytest parses the domain matrix in test-spec.md | seventeen separate receipts list completed checks and remaining gaps | an omitted domain or a bare grade fails |
+| TUIG-RUNTIME-R015.69 | pytest reads the finding inventory and the current scan output | each stable identifier has resolution evidence | closure inferred from a count fails |
+| TUIG-RUNTIME-R015.70 | pytest installs the built wheel outside the checkout and runs `tuig --help` plus a loopback unary task | the installed command prints help and completes one task | a checkout-relative or missing binary fails |
+| TUIG-RUNTIME-R015.71 | pytest launches the installed command against a loopback HTTP fixture with denied and empty responses | an authenticated empty read is reported as empty | a denied request is never shown as empty |
+| TUIG-RUNTIME-R012.3.2.2 | pytest drives the installed client against a served stack restarted between turns, with two stored contexts | the selected older context shows prior turns and the model receives them | foreign context, unsupported profile or incomplete history is refused with no fresh-context fallback |
+| TUIG-RUNTIME-R002.1.3.2.2.2.4 | pytest drives the compiled native UI against a served Arbora stack with stream, drop and reconnect | session continuity, replay, resnapshot and reconnect restore the same conversation | a missing cursor or dropped stream never silently restarts or duplicates a turn |
+| TUIG-RUNTIME-R008.2.3.2.2.4 | pytest drives the compiled native UI over a PTY against a served stack, with and without NO_COLOR | all tokens, selection and keyboard actions work and scroll position is retained | no-color output carries no color escapes; reduced motion shows no animation |
+| TUIG-RUNTIME-R012.6.2 | cargo integration test in native/tuig/tests/turn_usage.rs with a loopback served usage.read fixture | turn and session tokens and cost render with labels | a refused or missing value shows unavailable, never zero |
+| TUIG-RUNTIME-R012.1.2 | pytest drives the compiled native UI against a served stack through polling, streaming, tool blocks and cancel | a live turn streams, shows tool blocks and cancels on request | polling is never reported as streaming; a crashed active turn is not resumed |
+| TUIG-RUNTIME-R008.2.3.2.2.2.2.2.2 | Compiled-binary PTY test with loopback task fixture, both color modes | Keyboard-only navigation, confirmation activation and composer focus restoration succeed | Mouse-only paths, color escapes under no-color and lost composer text fail the case |
+| TUIG-RUNTIME-R012.3.1.1 | Native integration test against a loopback HTTP fixture serving tasks/list pages | Previous page reuses its original cursor and shows only the current page | Duplicate input, late completions and failed reads leave no stale rows or replies |
+| TUIG-RUNTIME-R010.12.2 | Native integration test with three-level graph fixtures at 40 columns | Separate spawned_child and depends_on edges, breadcrumbs and adjacency lists are keyboard reachable | Invalid locators and missing ancestors refuse; the composer target never changes |
+| TUIG-RUNTIME-R016 | Compiled native binary captured by `scripts/capture_native_gallery.py`; `tests/test_native_gallery.py` | Committed SVG assets match fixture digests and carry a synthetic label | An unsafe SVG, a stale digest or a missing provenance label fails |
+| TUIG-RUNTIME-R008.3.2 | Compiled PTY in both color modes (`tests/test_native_spatial_graph_pty.py`) and presentation unit tests | Canopy theme, navigation, search and contrast pass in color and no-color modes | A skipped optional test or a collection-only run cannot close the row |
 
 ## Integration and acceptance receipts
 
@@ -1062,7 +1146,7 @@ isolated worktree. Its source tree is `27293e499dc77313c2d99b4dad3b2e119590f486`
 Python 3.14.7 used the prior pinned client/test dependencies in a new environment.
 Arbora 0.1.7 used CI's explicit `--no-deps` installation policy. This does not
 qualify its server dependency graph: full transitive resolution conflicts with
-pinned platformdirs 4.12.2, while agent-utilities requires at least 4.13.3.
+pinned platformdirs 4.12.2, while meristem requires at least 4.13.3.
 No source dependency or lock changed.
 
 | Check | Result |
@@ -1183,7 +1267,7 @@ Use the configured shared hook revision for `pipelines-hook`; record the resolve
 | Project structure | `pipelines-hook root-hygiene`; `pipelines-hook public-surface`; `pipelines-hook gitignore-convergence`. Inspect all tracked paths. |
 | Structural census | `pipelines-hook complexity-census`; `pipelines-hook kiss-census`. Retain complete reports and their resolved threshold definitions. |
 | Python execution | `uv run --frozen --extra test pytest tests -q -W error`. Run every required slow or served acceptance test too. |
-| Python coverage | `uv run --frozen --extra test pytest tests --cov=agent_terminal_ui --cov-branch --cov-report=json:/tmp/tui-quality-coverage.json --cov-report=term-missing -W error`. |
+| Native coverage | Measure line and branch coverage of `native/tuig/src` with a coverage tool; record the tool, command and raw report. |
 | Source security | Run configured `bandit`, `detect-private-key` and `security-sanitizer` hooks with `--all-files`. Retain findings before any remediation. |
 | Dependency consistency | `uv lock --check`; `pre-commit run dependency-readiness --all-files --hook-stage manual`. These are not vulnerability scans. |
 | Version mirrors | `pre-commit run check-bumpversion --all-files --hook-stage pre-commit`. Installed metadata and lock-mirror comparisons still need a pinned executable gate. |
@@ -1465,7 +1549,7 @@ complete native performance or the full quality acceptance v1 domains.
 
 Base: `b60b72f5647dbe2662461f2d8398f2bba405455e`. This slice changes
 only tests and specification records. The client, hook rules and tool pins are unchanged.
-The owning implementation is `agent_terminal_ui/client.py`. Its three read
+The owning implementation is `native/tuig/src/lib.rs`. Its three read
 adapters remain mapped to their served operations in the client maintenance table above.
 
 `tests/test_client_maintenance_gates.py` copies the actual hook configuration
@@ -1684,8 +1768,8 @@ current acceptance. R008.4.2 requires repeated compiled runs after the correctio
 
 ## Canopy compiled qualification receipt (2026-10-24)
 
-Source [8a05dc0](https://github.com/Knuckles-Team/agent-terminal-ui/commit/8a05dc0bd03beb6034ec8ab2bc244bff8cf7ac6b)
-passed [native job 121002855836](https://github.com/Knuckles-Team/agent-terminal-ui/actions/runs/40137776795/job/121002855836):
+Source [8a05dc0](https://github.com/Knuckles-Team/tuig/commit/8a05dc0bd03beb6034ec8ab2bc244bff8cf7ac6b)
+passed [native job 121002855836](https://github.com/Knuckles-Team/tuig/actions/runs/40137776795/job/121002855836):
 185 native tests, Clippy, checkout build and all four required PTY cases.
 No required PTY case skipped. The original rapid resize assertion and six
 controlled combined/split readiness cycles passed without sentinel input.
