@@ -929,7 +929,7 @@ The shared workflow resolves its own immutable revision and records each result 
 Locally, the same gates run through `pipelines-hook` with their ordinary exit codes.
 Malformed surface, layout and ignore fixtures must produce findings rather than clean results.
 
-Documentation and spec changes run the shared `gates` job in `ci.yml`, which passes right after checkout for a docs-only diff (`docs-only-paths`) and runs the full gates for a mixed diff.
+Documentation and spec changes run the shared `gates` job in `ci.yml`, which classifies the change itself: a docs-only diff runs only the spec gate set and a mixed diff runs the full gates.
 The aggregate `CI required` job is the one required check; native wheels run on main and nightly only.
 The shared spec group validates names, decomposition, generated status and commit trailers.
 The existing code CI and all existing blocking hook entries remain unchanged.
