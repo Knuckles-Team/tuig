@@ -86,13 +86,9 @@ def test_docs_only_pull_requests_run_the_spec_gate_in_the_shared_job():
         == "Knuckles-Team/pipelines/.github/workflows/gates_pipeline.yml@main"
     )
     assert job["if"] == "github.event_name == 'pull_request'"
-    assert job["with"]["docs-only-paths"].split() == [
-        "specs/*",
-        "docs/*",
-        "*.md",
-        "plans/*",
-        "LICENSE",
-    ]
+    # The shared gates workflow classifies each change itself; the opt-in
+    # docs-only-paths input no longer exists (pipelines PIPE-RELEASE-R007.11).
+    assert "docs-only-paths" not in job["with"]
     assert "spec" not in job["with"]["skip-hooks"].split(",")
 
 
