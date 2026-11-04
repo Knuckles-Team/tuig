@@ -54,7 +54,7 @@ Never write code for a row that is not SPECIFIED in this repository's `specs/`. 
 ## Boundaries
 
 - **Owns:** what a person sees in the terminal.
-- **Never builds:** data access other than through arbora, or a decision (route decisions to epistemic-graph). Served operations go to arbora.
+- **Never builds:** data access other than through arbora, or a decision (route decisions to medulla). Served operations go to arbora.
 - **Allowed integration:** public Arbora wire contracts. No EG or Arbora internals run in-process.
 
 Route every feature with the [ecosystem boundaries standard](https://github.com/Knuckles-Team/pipelines/blob/main/reference/ecosystem-boundaries.md) before any code. A part this repository does not own goes to its owner's specs.
