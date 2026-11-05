@@ -7,6 +7,8 @@
 **Requirement:** TUIG-RUNTIME-R001 (terminal-client share of the Arbora command and A2A interface). See [`requirements.md`](requirements.md) for the full definition of every requirement ID this spec owns and [`status.json`](status.json) for their current delivery and acceptance state.
 **Related public owners:** [Arbora hosted operation service](https://github.com/Knuckles-Team/arbora/tree/main/specs/hosted-api-operations) supplies the operation registry, generated client and authorization boundary. Its [A2A task projection](https://github.com/Knuckles-Team/arbora/tree/main/specs/a2a-task-projection) supplies task methods. Axil owns its own consumer implementation. This spec states the shared wire contract but does not assign its code to the TUI.
 
+Depends-on: [ARBORA-A2A-R001.5.6](https://github.com/Knuckles-Team/arbora/blob/main/specs/a2a/requirements.md), [ARBORA-A2A-R001.5.8](https://github.com/Knuckles-Team/arbora/blob/main/specs/a2a/requirements.md), [MERISTEM-RUN-R017.5](https://github.com/Knuckles-Team/meristem/blob/main/specs/run/requirements.md)
+
 ## Purpose and user stories
 
 ### User Story 1 - Invoke a registered operation (Priority: P1)
