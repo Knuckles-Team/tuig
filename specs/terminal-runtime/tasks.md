@@ -64,6 +64,12 @@ Tasks follow the rows in dependency order. A task names one requirement row and 
 - [ ] T058 [US5] TUIG-RUNTIME-R002.1.3.2.2.3 Bounded committed terminal point-read.
 - [ ] T059 [US5] TUIG-RUNTIME-R012.2.2 Preserve governed model-choice acceptance.
 - [ ] T060 [US5] TUIG-RUNTIME-R012.5.2 Served image and file admission.
+- [ ] T164 [US5] TUIG-RUNTIME-R012.5.2.1 Attach an image by path or drop.
+- [ ] T165 [US5] TUIG-RUNTIME-R012.5.2.2 Attach an image from the clipboard.
+- [ ] T166 [US5] TUIG-RUNTIME-R012.5.2.3 Check type and size before send.
+- [ ] T167 [US5] TUIG-RUNTIME-R012.5.2.4 Show a thumbnail or a text placeholder.
+- [ ] T168 [US5] TUIG-RUNTIME-R012.5.2.5 Send the image through Arbora only.
+- [ ] T169 [US5] TUIG-RUNTIME-R012.5.2.6 Hot-path proof for image input.
 - [ ] T061 [US5] TUIG-RUNTIME-R004.2 Remaining hook parity.
 - [ ] T062 [US5] TUIG-RUNTIME-R010.4.2 Live current-plan acceptance.
 - [ ] T063 [US5] TUIG-RUNTIME-R015.1 Function size.
