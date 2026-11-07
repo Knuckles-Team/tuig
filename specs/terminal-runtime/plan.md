@@ -39,6 +39,14 @@ No unknowns. The dated sections below record each earlier resolution.
 
 ## Phase 1: Design
 
+- **Owner:** tuig owns what a person sees and does in the terminal. Arbora owns admission, served operations and approvals. The engine owns decisions.
+- **Cohesion:** The native client lives in `native/tuig/src/`. Each view has one module, and each served operation has one client call.
+- **Dependency direction:** The terminal depends on the Arbora client contract only. Nothing in Arbora or the engine depends on the terminal.
+- **Interface depth:** None. The client calls served operations through the existing transport; no new abstraction is added.
+- **Special cases:** A refused or unavailable producer shows its typed refusal. The client adds no local fallback and no policy.
+- **State:** The client holds view state and the resume record of a coding session only. Durable state lives behind Arbora.
+- **Environment:** Endpoints and credentials come from the configuration that the operator supplies. No public file names a host, private domain or local path.
+
 The architecture, contracts, decisions and dated amendments follow in the sections below, starting at "Existing wiring and architecture". Ownership: Arbora owns the task lifecycle; Tuig owns presentation and operator input.
 
 ### Existing wiring and architecture
