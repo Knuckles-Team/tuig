@@ -1715,3 +1715,12 @@ TUIG-RUNTIME-R012.3.2.2 remains open for the actual installed client and backend
 restart journey, context selection and prior-turn display. Record exact producer
 and consumer revisions. Refuse foreign contexts and incomplete history without
 submitting a fresh replacement. A wire fixture cannot close this row.
+
+## R013: workstream peer
+
+| Test ID | Requirement | Test | Expected observation |
+|---|---|---|---|
+| T-R013 | `TUIG-RUNTIME-R013` | Every child row (planned). | See each child. |
+| T-R013.1 | `TUIG-RUNTIME-R013.1` | `native/tuig/tests/workstream.rs::attach_renders_context_and_exit_writes_checkpoint` (planned) | The fake gateway receives attach with harness `tuig`, then checkpoint and detach at exit; a refusal renders and the session continues. |
+| T-R013.2 | `TUIG-RUNTIME-R013.2` | `native/tuig/tests/workstream.rs::pty_session_shows_a_harness_checkpoint_and_records_exit` (planned) | The PTY screen shows the harness checkpoint before the first prompt; the gateway records one checkpoint and one detach. |
+
