@@ -411,8 +411,6 @@ Assert that argv, stdout diagnostics, logs and exception messages contain neithe
 
 ## Coding session
 
-The suite is `tests/test_coding_session.py`. It uses a fake gateway and a temporary workspace directory.
-
 - TUIG-RUNTIME-R011.1: Planned `native/tuig/tests/coding_session.rs::test_session_model_closed_capability_set`. Unknown methods must map to a typed refusal.
 - TUIG-RUNTIME-R011.2: Planned `native/tuig/tests/coding_session.rs::test_capability_handlers_serve_local_host`. A read inside the root must return file text and prompt zero times.
 - TUIG-RUNTIME-R011.3: Planned `native/tuig/tests/coding_session.rs::test_path_containment_refuses_escape`. Parent segments, absolute paths and symlinks leaving the root must be refused with zero bytes read or written.
@@ -631,66 +629,17 @@ These local contracts do not close full served recovery, presentation parity or 
 
 ## Modal keyboard ownership
 
-Partial R008 evidence exercises the mounted exit, graph-chat and tool-approval
-journeys in `tests/test_modal_keyboard_isolation.py`. Escape returns to the
-composer; Shift+Tab moves focus without changing the agent mode. Input editing
-keys stay with the modal, including Ctrl+A, Ctrl+C, Ctrl+D, Ctrl+U and Ctrl+Y.
-Escape denies pending approvals through the existing callback. The fixture
-checks main-screen shortcuts separately. Transport effects are not qualified.
-Full presentation, native parity and served acceptance remain open.
-
 ## Settings and MCP viewport access
-
-`tests/test_settings_mcp_layout.py` records partial R008 accessibility evidence.
-Mounted AgentApp journeys resize from 120x40 to 40x12, 60x20 and back.
-Settings search retains text and focus. Tab reaches the filtered checkbox, and Space persists its changed value.
-A focused field near the end of the unfiltered form remains visible after resize.
-The settings screen is mounted directly because no application command exposes it.
-The MCP journey enters `/mcp`, navigates thirty fixture tools, and retains the selected cell inside the resized table.
-Both dialogs keep their controls within their bounds. MCP resize reveals the selected cell after layout settles.
-Escape restores composer focus. Reopening settings retains the saved value; reopening MCP handles an empty catalog.
-These fixtures do not qualify live catalog transport, native parity, PTY behavior or release performance.
-R008 and its remaining full presentation acceptance stay open.
 
 ## Python operator documentation
 
-`tests/test_cli_documentation.py` captures actual CLI help and tests dispatch.
-It rejects invalid observer combinations and checks documented directory precedence.
-Existing theme fallback and mounted log refusal tests remain behavior evidence.
-These tests do not prove model selection, history loading or backend authority.
-
 ## Canonical run-inspection consumer evidence
-
-`tests/test_run_inspector_contract.py` enters the generated `runs.get` and
-`runs.events` paths through the real client and mounted inspector. It covers
-strict overview identity, old-client refusal, exact requests, literal payloads
-and bounded replay. It also covers denial clearing and stale reads after
-refresh, close or owner changes. Owner changes before mount issue no request. Row and follow
-events before idle clear paused or completed views. The command matrix covers
-explicit run aliases and no-ID refusal without legacy requests.
-`/run plan` retains its separate tests.
-Current-contract transport cases inject two schema lookups from the pinned
-`tests/fixtures/public_run_operations.json` fixture. Its source is Arbora
-`45b8d1d8bae4e3621f9432030769803a659671fc`. The installed invoker, digest check
-and HTTP transport remain unchanged. This seam does not alter the production
-SDK or its operation enum. Separate tests use the untouched installed SDK to
-verify missing operations refuse before HTTP. Those tests skip when the local
-SDK already includes the operations; skips are not old-release acceptance.
-This is partial evidence for R010.1, R010.6 and R012.4.3.2. Full harness fields,
-released-stack and live producer acceptance remain open.
 
 ## Unsupported image input boundary
 
 - `TUIG-RUNTIME-R012.5.1`: `tests/test_commands.py::TestImageCommand::test_cmd_image_refuses_without_reading` proves that empty, quoted, missing and malformed paths receive an unsupported notice with no reads or pending-part changes. `tests/test_client.py::test_image_command_refusal_preserves_next_text_submission` uses the real command, application part collector and client to prove the next text turn still submits existing text attachments. `test_non_text_parts_are_refused_before_any_request` rejects typed, legacy untyped, mixed and malformed unsupported parts before network access.
 
 ### Bounded text-file evidence
-
-`tests/test_text_files.py` covers `/file` staging, names, removal, quoted paths,
-invalid content, regular-file checks, owner changes and queued dispatch.
-`tests/test_client.py` proves exact file payloads through the existing stream and
-poll paths, inclusive limits, zero-request refusal and server upload errors.
-These fixtures extend R012.5.2 without closing its served PNG and pasted-image
-criteria. The attachment rollup remains open.
 - `TUIG-RUNTIME-R012.5.2`: Retain the served PNG admission and oversized-file criteria. Refusing every image without reading it is not file-size validation or successful image admission.
 
 ## Nonblocking unary polling
@@ -709,14 +658,6 @@ criteria. The attachment rollup remains open.
 - Observe remains read-only in the actual loopback EG/Arbora/native journey.
 
 ## Responsive modal layouts
-
-Partial R008 presentation evidence covers chat-dialog bounds, approval-list
-scrolling, visible compact approval controls, and feedback focus after resize.
-`tests/test_modal_layout.py` resizes the same mounted modal through 120x40,
-40x12 and 60x20 viewports, then restores 120x40. The baseline clips the chat
-dialog, hides approval feedback and clips one-row button content. These local
-fixtures do not close native parity, full keyboard access, served journeys or
-performance acceptance. R008 and its remaining presentation leaf stay open.
 
 ## Collapsed public-detail regression proof
 
@@ -782,13 +723,6 @@ public-run keyboard suites pass 122 tests with two workers. All-files pre-commit
 passes. Generated commit evidence is local until independent review and merge;
 R012.6 and full served command acceptance remain open.
 ## TUIG-RUNTIME-R012.4.3.3: Unsupported command entry points
-
-`tests/test_unavailable_session_commands.py` mounts the production AgentApp.
-Enter submits /bg, /attach and /fast, including argument variants. Alt+O follows
-the same refusal path as /fast. Require one unavailable warning, no session
-manager access, unchanged identity and queue, no fast-mode flag and no model
-turn. Existing focus and exact-command regressions must remain green.
-This is client fixture evidence, not served scheduling or resume acceptance.
 
 Command inventory at base `9da41811fe661c3920834cbf1313de51a5aeab09`:
 
@@ -877,12 +811,6 @@ This batch adds no child requirements.
 | `AgentClient.list_mcp_tools` | `fleet.catalog.list` uses opaque cursors, 100 items per page and at most ten pages. Tests reject partial success after denial, timeout, malformed data or cycles. |
 | `AgentClient.list_history_tasks` | `tasks/list` supplies bounded task pages with context identifiers. Tests retain repeated context IDs, validate identities and preserve active context. The client infers no complete context grouping or enumeration. |
 
-`tests/test_client_read_contracts.py` uses the production client and generated
-Arbora invoker with HTTP fixtures. It preserves the client's configured caller
-header rather than supplying credentials inside the transport handler. The
-fixture returns counterexamples for each read contract. Existing mounted
-history and usage tests cover stale content and asynchronous lifecycle.
-
 R015.46 concerns identifiers available through the current authorized contract.
 R012.3 and R012.3.2 remain open for complete conversation history and resume.
 R012.4.3, R012.6 and installed/live acceptance also remain open. These fixtures
@@ -917,12 +845,6 @@ The later client maintenance qualification below owns R015.48 and R015.51. R015.
 
 ## Theme keyboard regression (R015.53)
 
-`tests/test_theme_keyboard.py::test_theme_shortcut_cycles_without_changing_composer`
-presses Alt+Shift+T through the mounted AgentApp. It checks every registered theme
-and wraparound, unchanged composer text and focus, and preserved no-color mode.
-Both parameter cases fail on main at `52bc92d5` because the binding is absent.
-This fixture does not qualify full native presentation or served performance.
-
 ## Native CLI help
 
 `TUIG-RUNTIME-R015.30.2`: `native/tuig/tests/cli_help.rs` runs the
@@ -952,13 +874,6 @@ fold choice and focus, leaves other tasks unchanged, and refuses replay until
 the exact binding is validated again. This repairs the existing leaf; it adds
 no new completed requirement or served acceptance claim.
 
-Baseline: `52bc92d5fb1e140c9502f634b3ea6ac3c37f5760` on GR1080.
-The seven parameter cases in
-`tests/test_public_run_details.py::test_malformed_rebinding_clears_only_matching_task_and_requires_revalidation`
-fail against unchanged baseline production code and pass with the repair.
-The focused public-details, whole-app keyboard and mounted tool-block suite
-passes all 106 tests with Python 3.14.7:
-
 ```bash
 python -m pytest tests/test_public_run_details.py tests/test_public_run_keyboard_app.py tests/test_tool_call_block_mounted.py -q -o addopts='' --timeout=30 --timeout-method=thread
 ```
@@ -969,22 +884,10 @@ The restricted execution environment stalled mounted tests; the completed
 results above use the same GR1080 host outside that restriction. No native,
 live Arbora, release-performance or cross-terminal qualification is claimed.
 
-
-The full pre-push gate passed every hook except pytest. Its default locked
-all-extras environment lacks the optional Arbora client. It reported 1272
-passes, one skip, seven failures in `tests/test_client.py`, and four collection
-errors in `test_client_read_contracts.py`, `test_current_plan_view.py`,
-`test_registered_command_contract.py` and `test_served_fleet_usage.py`.
-A separate `uv run --all-extras` environment tests the same five files on unchanged main.
-It reproduces all seven failures and four errors, with 74 passes.
-This default gate remains failing. The repair changes no dependency or hook configuration.
-
-
 The full suite also ran with the existing installed `arbora==0.1.7` client
 environment on GR1080: 1444 passed, one skipped, and all six snapshots passed.
 The command was `python -m pytest tests -q -n 2 --dist loadfile -p no:randomly -m 'not slow' --timeout=60 --tb=short`.
 This installed-client result does not make the default pre-push environment green.
-
 
 Publication rebase: `d370244d768458262cfc46692152eadd913709a2` adds native CLI help.
 Both appended evidence sections are retained. Python production code is unchanged
@@ -997,20 +900,12 @@ and details. Control-only output renders empty and must remain inert. Pressing
 Enter cannot record a user fold choice until visible content exists. Later
 visible output still follows the configured expansion policy and retains focus.
 
-Baseline: `d370244d768458262cfc46692152eadd913709a2` on GR1080.
-The nine cases in
-`tests/test_tool_call_block_mounted.py::test_control_only_initial_output_is_inert_until_visible_content_arrives`
-fail before the production repair. They cover content, details and both fields
-under always, on-fail and on-success policies. The repair passes all 108 tests
-across the mounted tool, public-details and whole-app keyboard suites:
-
 ```bash
 python -m pytest tests/test_tool_call_block_mounted.py tests/test_public_run_details.py tests/test_public_run_keyboard_app.py -q -n 2 --timeout=30 --timeout-method=thread
 ```
 
 This repairs an existing leaf. It adds no completed requirement and makes no
 served streaming, native presentation or release-performance claim.
-
 
 Full-suite receipt before the publication rebase: Python 3.14.7 with installed
 `arbora==0.1.7` passes 1446 tests, skips one, and passes all six snapshots.
@@ -1055,11 +950,6 @@ not invent an approval count. Grant and invalid subcommands refuse before
 transport. `/help` uses the registered TUI handlers and identifies the existing
 unavailable operation families, without importing optional cross-surface help.
 
-`tests/test_mounted_command_matrix.py` drives the actual AgentApp composer with
-a real AgentClient and controlled HTTP responses. Its inventory accounts for
-every registered command. This is client fixture evidence, not a live producer
-or complete subcommand proof for R012.4.3.2; that row stays open.
-
 | Command group | Mounted evidence and limit |
 | --- | --- |
 | help | All registered names, local descriptions and unavailable operation names |
@@ -1098,7 +988,6 @@ success, denial or timeout. After the modal keyboard repair merges, capability a
 Escape. Success and failed-read paths restore composer focus and accept `/help`.
 This integrates the existing modal fix without changing its source. These cases add validation, not new implementation or completion.
 
-
 ### Local settings entry and legacy management boundaries
 
 R012.4.3.1 gains `/settings`, which opens the existing SettingsScreen. Mounted
@@ -1125,7 +1014,6 @@ Cost must be a mapping with finite numeric input/output values when supplied.
 Tags must be a list of strings when supplied. Invalid fields produce the named
 unavailable result for all three registry-read forms. Unrelated metadata is preserved.
 
-
 ### Focus command after sidebar keyboard navigation
 
 R012.4.3.1 preserves composer focus after `/focus` hides or opens the sidebar.
@@ -1133,11 +1021,6 @@ The command reuses the existing screen action, then restores composer focus.
 Ctrl+B still moves focus into sidebar tabs when opening them. Mounted real-client
 regressions exercise both command spellings and the shortcut, with no command
 requests or model turn. The existing dispatcher regressions remain unchanged.
-
-Both original cases fail on untouched main 55c5aad6 at
-`tests/test_registered_command_contract.py:47`: ContentTabs has focus instead
-of InputTextArea. The two new real-client cases reproduce the same failure.
-This command repair does not change sidebar navigation, layout or transport.
 
 ### Exact-main qualification at 992a762d
 
@@ -1180,16 +1063,6 @@ changing acceptance status or test markers. It does not prove live producers,
 production identity, full served parity or release performance.
 
 ## Initial history loading regression
-
-R012.3.1 now opens its history screen before the first page read.
-`tests/test_history_initial_load.py` enters `/history` through the mounted
-AgentApp composer and real client transport with controlled HTTP responses.
-It verifies pending-read keyboard close, duplicate-key suppression, safe reopen
-and rejection of a late completion that suppresses cancellation. Denied and
-malformed first reads remain visible as unavailable and can retry with R.
-The tests assert only tasks/list reads and no active task or context change.
-All three cases fail on main 36de5343 before the repair.
-This receipt does not establish live producer, native or conversation-resume acceptance.
 
 Cloud qualification used Python 3.12.14, Textual 8.2.8 and Arbora 0.1.7.
 The 41 scoped history tests and 26 command/documentation cases passed.
@@ -1322,11 +1195,6 @@ Each entry requires a distinct receipt with the commands above, acceptance oblig
 | Pytest Quality | R015.9 and R015.34–R015.40 structural, fixture and assertion evidence; test incorrect observable results, not assertion presence. |
 | Environment Variables | R015.41–R015.43 source inventory, dynamic aliases, examples, defaults and real entry-point tests; native residuals remain required. |
 
-The existing environment, fixture, README and operator-documentation tests supply bounded evidence only.
-Reuse `tests/test_environment_inventory.py`, `tests/test_fixture_isolation.py`, `tests/test_readme_navigation.py` and `tests/test_operator_documentation.py`.
-Their presence or a targeted pass does not establish complete domain acceptance.
-A missing full-domain check remains work to implement; do not create a test that asserts this table exists as acceptance.
-
 ### Finding inventory and aggregate acceptance
 
 The evaluator must build the current inventory from complete scans of the candidate revision.
@@ -1399,16 +1267,6 @@ The runtime source and license bytes did not change.
 
 ## MCP loading and retry evidence (2026-10-24)
 
-`tests/test_mcp_responsiveness.py` qualifies client presentation for R012.4.2.
-Mounted AgentApp commands open a loading view before the first read and restore
-composer focus on Escape. Retry clears previous rows; typed failures remain
-unavailable, distinct from valid empty results. Late success and failure cannot
-replace a newer refresh or continue after a client-owner change. Cancellation
-suppression cannot reopen a closed screen. The command starts no model turn.
-`tests/test_served_fleet_usage.py` checks mounted MCP dispatch through real
-generated-client transport fixtures. These checks do not close model admission,
-conversation resume, or served session and turn usage acceptance.
-
 ## Literal completion-marker regression
 
 `TUIG-RUNTIME-R012.1.1`: `tests/test_turn_completion.py` feeds A2A-normalized
@@ -1431,20 +1289,6 @@ All packaged Python, TCSS and license bytes matched that union checkout.
 The earlier full-suite receipt remains evidence for its recorded baseline, not a new full-union run.
 
 ### Python status usage regression
-
-R012.6.2 has supporting coverage in `tests/test_status_line_usage.py`.
-Mounted text distinguishes unavailable fields from supplied zero, preserves
-valid token or cost values independently, and clears prior measurements.
-Null, boolean, negative, non-finite and wrong-type values must not crash.
-Usage and turn-end event routes exercise the real mounted main screen.
-These display tests do not qualify served turn or session totals or costs;
-R012.6.2 remains open.
-
-`tests/test_status_line_layout.py` captures visible compositor text after
-resize between 120, 80, 60 and 40 columns, including a 12-row terminal.
-Idle and active states retain draft text and composer focus. Geometry checks
-keep the conversation, composer, status and footer separate and on screen.
-The status and main-screen SVG snapshots record the corrected layout.
 
 Keyboard tests toggle the sidebar and server log at 120, 80 and 60 columns.
 The existing eight-row server log still overflows a 40-column, 12-row terminal.
@@ -1489,7 +1333,6 @@ specification checks and the version dry run. The focused historical,
 environment-example and shared-hook suite passed 33 tests without skips.
 Full Python, native and installed qualification were outside this slice.
 
-
 ## Historical analysis current-main reconciliation
 
 This reconciliation preserves main `472d0b28f60f631a184abdf4986aebacb5cf5550`
@@ -1504,26 +1347,11 @@ passed 44 cases without skips on this union. Earlier test and wheel receipts
 retain their recorded baselines; this reconciliation makes no new installed,
 native or full-suite acceptance claim.
 
-
 ## Installed and native environment documentation (R015.42.2)
 
 Base: `b04b208155a1f33b30b70df71c55c768c7502add`. This slice changes tests
 and documentation only. It corrects the Python-only description of AGENT_THEME
 and distinguishes the entry points' theme controls and NO_COLOR semantics.
-
-`tests/test_entry_environment_pty.py` starts the real installed Python console
-script and compiled native terminal outside the source checkout. Four known
-palettes and an unknown name prove startup selection and tokyo-night fallback.
-Absent, empty and nonempty NO_COLOR values distinguish Python presence semantics
-from native nonempty-value semantics. Each case opens the log view without
-host admission. Both terminals refuse and make no host-log transport request.
-
-A Linux inotify probe watches a sentinel path supplied through AGENT_LOG_FILE.
-Neither process opens the file during startup, refusal or exit. A separate
-counterexample deliberately opens the file and proves that the probe detects it.
-The tests also reject sentinel disclosure in terminal output.
-`tests/test_entry_environment_documentation.py` checks the published claims
-and native theme inventory, rejecting missing palettes and incorrect behavior.
 
 The installed wheel comes from tracked source at the base above.
 Wheel SHA-256: `3f90a423d61de012479b0c651a691ca0186974a4bfb53b6e198f2f9809e392c0`.
@@ -1552,14 +1380,6 @@ only tests and specification records. The client, hook rules and tool pins are u
 The owning implementation is `native/tuig/src/lib.rs`. Its three read
 adapters remain mapped to their served operations in the client maintenance table above.
 
-`tests/test_client_maintenance_gates.py` copies the actual hook configuration
-and pyproject into temporary Git repositories. It tracks the real client path,
-then invokes the configured Ruff and mypy hooks through pre-commit.
-Both accept a valid function. Ruff rejects an undefined name with F821;
-mypy rejects an integer returned as a string with a return-value diagnostic.
-The tests reject skipped hooks, failed clean inputs and accepted wrong results.
-They use populated hook environments, not replacement tool arguments or mocks.
-
 The two enforcement tests passed without skips in 1.74 seconds.
 The current-source client, transport, mounted-command, history and text-file
 regressions passed 407 tests without skips in 67.46 seconds with two workers.
@@ -1577,19 +1397,6 @@ Configured Ruff was 0.15.12 at `6fec9b7edb08fd9989088709d864a7826dc74e80`.
 Configured mypy was 1.20.2 at `fc0f09a29bb495f4a91f00266155d6282d52485d`.
 The hook configuration SHA-256 is `053413c0ab09b0f920a642867ddee61618da5a5b4171ce49357352b1086fb80f`.
 The client source SHA-256 is `fb27dd8facc158d81f0458e49b9b07cc0b1e1492f9a956f2d9a3c654771a3414`.
-
-Set TUI_TEST_PRE_COMMIT to the installed runner and PRE_COMMIT_HOME to its
-populated cache before running the enforcement module. An unset runner skips
-both cases and gives no acceptance evidence. Invalid supplied paths fail.
-The full candidate `pre-commit run --all-files` passed, including configured Ruff and mypy.
-The candidate's full all-file gate remains the primary lint and type acceptance;
-temporary counterexamples prove enforcement, not current-client correctness.
-No dependency or hook environment was installed for this qualification.
-`tests/test_client_maintenance_documentation.py` derives the three operation
-mappings from production source and checks their owning table and execution receipt.
-It rejects missing or wrong mappings, narrowed commands, missing outcomes and false live-proof claims.
-A fresh combined run passed all 11 enforcement and documentation cases without skips in 1.71 seconds.
-R015.29.2, R015.52 and quality acceptance v1 remain open.
 
 ## Environment and tool-guard assessment (R015.54)
 
@@ -1668,18 +1475,6 @@ Cancel the selected authorized target; verify acknowledgement, eventual state an
 
 ### Flat graph source-contract evidence
 
-`tests/test_execution_graph.py` covers the bounded Python slice of R010.11 and R010.12.
-It mounts the production screen through the command and application entry, with the real client and transport.
-Only the graph schema lookup uses the pinned source fixture; the installed invoker and digest check remain active.
-Coverage includes a 40-column diamond, shared dependencies, keyboard selection, resize and close.
-Negative tests cover identity, topology, evidence, bounds, refusal, credential/context changes and late results.
-The missing-operation regression makes zero network requests, without a fallback or skip.
-Actual installed-SDK qualification remains separate from this source fixture.
-These mounted Python tests do not close R010.11 through R010.14.
-Native compilation, tests and Clippy passed in hosted CI on `612def9`.
-The compiled-terminal journey below must qualify the exact candidate executable.
-Nested and released-stack acceptance also remain required.
-
 ## Native flat graph source-contract coverage
 
 The native execution graph module and loopback test file use the actual Arbora
@@ -1727,19 +1522,6 @@ literal hostile labels; redraw stability; and clearing after denial, close,
 refresh or changed binding. Existing transport guards and effect-key isolation
 remain required. Compiled PTY and served qualification are separate gates.
 
-The entry-point matrix in `tests/test_entry_environment_pty.py` includes Canopy
-startup and no-color cases for both clients. It is opt-in locally; the native
-CI job requires all 18 cases and the log-open probe check without skips. Build
-and install the wheel from the same checkout as the native executable. Verify
-isolated import provenance and installed bytes against the wheel, then retain
-source and artifact hashes with JUnit results. CI wiring regressions in
-`tests/test_installed_startup_ci.py` do not qualify the actual matrix. The
-spatial helper and InspectorView tests require compiled native execution.
-`tests/test_native_spatial_graph_pty.py` covers resize, selection, pan, search,
-denial, no-color and local effect isolation through the compiled entry point.
-The native CI job requires both color cases and both existing PTY journeys
-without skips. See the compiled qualification receipt below.
-
 The spatial view labels its edge filter: only the selected step's incident
 dependencies appear. All nodes and exact adjacency lists remain available.
 A buffer regression distinguishes crossed pairs from the fully connected graph.
@@ -1749,7 +1531,6 @@ The selected-edge legend identifies graph-local plan-step `depends_on` direction
 The crossing regression changes selection and checks exact predecessor/dependent lists.
 It also covers no selected card without invented edges. Held horizontal
 arrows share the navigation-only repeat allowance; action repeats remain ignored.
-
 
 ## Native resize/input readiness acceptance
 
@@ -1764,7 +1545,6 @@ ordinary rapid assertion. A prior graph run passed, so that result was intermitt
 [Crossterm issue 1126](https://github.com/crossterm-rs/crossterm/issues/1126)
 describes the matching readiness failure. Older-binary diagnostics are not
 current acceptance. R008.4.2 requires repeated compiled runs after the correction.
-
 
 ## Canopy compiled qualification receipt (2026-10-24)
 
@@ -1783,7 +1563,6 @@ Keep that intermittent input failure and fixture error in the evidence history.
 The receipt update also captures real terminal cells and observed colors in
 bounded PTY output. Inspect those screens and repeat the compiled gate before merge.
 Installed palette, cross-terminal, served hierarchy and release qualification remain open.
-
 
 ## Ancestor acceptance audit regression (2026-10-24)
 
@@ -1808,7 +1587,6 @@ only the existing A2A methods are used and that history never changes the
 active conversation. Resize from wide to 40 by 12 and back without covering
 the footer or losing exact tooltip values. Keep installed producer and
 session/cost acceptance open.
-
 
 ## Grouped source integration receipt (2026-10-25)
 
@@ -1841,7 +1619,6 @@ Historical two-color receipts do not qualify the new sage rendering.
 R008.3.2 and broader presentation, native parity and hierarchy acceptance stay
 open. R012.6.2 still requires installed producer, served session totals and cost
 acceptance. The full configured pre-push release stage was not run locally.
-
 
 ## R002 request-mode removal regression contract (2026-10-25)
 
@@ -1880,7 +1657,7 @@ Source-only checks cannot authorize release or deployment.
 
 ## R011.14: explicit local ACP text transport
 
-Native `tests/acp.rs` covers initialization, session binding, ordered text,
+Native `native/tuig/tests/acp.rs` covers initialization, session binding, ordered text,
 response IDs, unsupported callbacks, cancellation, EOF and frame limits.
 `local_runtime` unit tests preserve flag-looking prompt data and reject mixed
 local and central arguments. `tests/test_native_acp.py` exercises the compiled
@@ -1895,7 +1672,6 @@ The probe returned `hello client`, accepted advertised close and exited zero.
 Arbora was an uncommitted integration on `72fc99db`; AU used reviewed source
 `3a6adb40` (upstream merge `832d317a`). Full production-binary and installed
 release pairing remain pending. This is not live-provider qualification.
-
 
 ## R011.14 installed helper resolution
 
