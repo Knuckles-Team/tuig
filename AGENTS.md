@@ -38,7 +38,7 @@ Never write code for a row that is not SPECIFIED in this repository's `specs/`. 
 > - Feature specifications and tasks: `specs/terminal-runtime/`.
 > This file (`AGENTS.md`) is for system-prompt context; the `specs/` tree is the source of truth for architecture and new features.
 
-<!-- Ecosystem Concepts (cross-project, from agent-utilities kernel) -->
+<!-- Ecosystem Concepts (cross-project, from meristem kernel) -->
 <!-- CONCEPT:MERISTEM-OS.deployment.infra-orchestration Ecosystem Topology Map — classified as FrontendPackage -->
 <!-- CONCEPT:MERISTEM-KG.memory.background-learning-engine Cross-Session Chat Recall — consumed via kernel API -->
 <!-- CONCEPT:MERISTEM-KG.memory.ground-truth-preamble-declaring Project-Aware Context — AGENTS.md auto-loaded by kernel -->
@@ -198,10 +198,10 @@ alone).
 Working in parallel with other sessions/worktrees? **Reserve a concept id before you write its `CONCEPT:` marker** so two sessions never collide:
 
 ```bash
-agent-utilities --json concept reserve --ns MEDULLA-KG.compute.backend   # or a package prefix, e.g. KEY
+meristem --json concept reserve --ns MEDULLA-KG.compute.backend   # or a package prefix, e.g. KEY
 ```
 
-Full protocol (ledger, merge=union, reconcile, MCP/REST): <https://knuckles-team.github.io/agent-utilities/concept_coordination/>
+Full protocol (ledger, merge=union, reconcile, MCP/REST): <https://knuckles-team.github.io/meristem/concept_coordination/>
 <!-- END concept-coordination (generated) -->
 
 ## Version & lockfile drift edict (keep the version mirrors AND the lock in sync)

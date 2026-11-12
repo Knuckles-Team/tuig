@@ -2,7 +2,7 @@
 
 > **Prefix**: `CONCEPT:TUIG-*`
 > **Version**: 2.3.6
-> **Bridge**: [`CONCEPT:MERISTEM-ECO.messaging.native-backend-abstraction`](https://github.com/Knuckles-Team/agent-utilities/blob/main/docs/concepts.md) (Unified Toolkit Ingestion)
+> **Bridge**: [`CONCEPT:MERISTEM-ECO.messaging.native-backend-abstraction`](https://github.com/Knuckles-Team/meristem/blob/main/docs/concepts.md) (Unified Toolkit Ingestion)
 
 ---
 
