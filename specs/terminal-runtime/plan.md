@@ -1793,3 +1793,4 @@ Operator input reaches `main.rs`, then `cli.rs` or the interactive view, then `l
 - `ARBORA-ACP-R001.4` contract `CodingSessionAdmission`: owned in the Arbora repository.
 - Contract `ClientCapabilityToolset` for `TUIG-RUNTIME-R011`: owned in the Meristem repository; its public row is not yet defined.
 - `MEDULLA-ORCH-VOCAB-R009` `HarnessConfig`: owned in the Medulla repository.
+- `ARBORA-HARNESS-PLUGINS-R004.2` contract `WorkstreamPeer`: owned in the Arbora repository. Contract: `contracts/workstream-peer.md`.

@@ -167,3 +167,6 @@ Tasks follow the rows in dependency order. A task names one requirement row and 
 - [ ] T161 [US5] TUIG-RUNTIME-R008.4.2 Qualify native resize/input delivery.
 - [ ] T162 [US5] TUIG-RUNTIME-R012.6.3 Display bound native turn receipts.
 - [ ] T163 [US5] TUIG-RUNTIME-R012.1.3.1 Native headless invocation.
+- [ ] T164 [US5] TUIG-RUNTIME-R013.1 Attach at session open and checkpoint at exit.
+- [ ] T165 [US5] TUIG-RUNTIME-R013.2 Hot-path proof: a harness checkpoint reaches the terminal.
+- [ ] T166 [US5] TUIG-RUNTIME-R013 Workstream peer.
