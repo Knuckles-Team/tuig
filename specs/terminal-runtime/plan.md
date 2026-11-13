@@ -1768,6 +1768,20 @@ This source slice does not close R012.3.2. Hosted native checks, the actual
 client/backend restart journey and the full history-selection UI remain open.
 Agent Card stateTransitionHistory does not advertise model-history continuation.
 
+### Image input (TUIG-RUNTIME-R012.5.2.1 to R012.5.2.6)
+
+The feature splits across three owners. Tuig owns what the person sees and does. Arbora owns admission, limits and byte transport. Meristem owns the run that carries the image to the model. Tuig sends the image only through Arbora. Tuig holds no model endpoint and decides no limit.
+
+Call path. `main` receives `Event::Paste` (native/tuig/src/main.rs:598). It calls `Composer::paste` (native/tuig/src/composer.rs:33). A pasted path becomes a pending `Attachment` (new `native/tuig/src/attachment.rs`). The submit step checks each attachment against the limits the agent card serves. `TaskSubmission::new` (native/tuig/src/lib.rs:51) then adds one bounded file part per image beside the text part. `ArboraClient::submit_task` (native/tuig/src/lib.rs:206) sends the task.
+
+Reuse. The attachment reuses the existing size checks in `TaskSubmission::new`. The thumbnail view reuses the composer render path. No new transport exists.
+
+Rendering. The view detects an inline-graphics protocol by a capability query with a 200 ms timeout. It shows `[image: name WxH size]` when the query fails.
+
+Cross-repo rows. ARBORA-A2A-R001.5.3 to R001.5.8 define admission, limits, transport, served limits, run hand-off and the served proof. MERISTEM-RUN-R017 to R017.5 define the run side. Each of those rows links back to TUIG-RUNTIME-R012.5.2.
+
+Open questions for the owner. The clipboard reader choice (R012.5.2.2). Fail-closed behavior when served limits are unavailable (R012.5.2.3).
+
 ## Phase 2: Task approach
 
 `tasks.md` follows the rows in dependency order. The producer-side contract row comes first. Rows on independent views run in parallel.
