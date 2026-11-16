@@ -421,7 +421,7 @@ rows remain pending. Keep the incumbent coding terminal until served parity and 
 ### One-shot tool-task consumer
 
 Component: Terminal task view
-Depends-on: TUIG-RUNTIME-R001.2, TUIG-RUNTIME-R001.3, TUIG-RUNTIME-R001.5, [Arbora A2A](https://github.com/Knuckles-Team/arbora/blob/331044ed7daec51a3633e0a7ea712293b2063bf3/specs/a2a/spec.md)
+Depends: TUIG-RUNTIME-R001.2, TUIG-RUNTIME-R001.3, TUIG-RUNTIME-R001.5, [Arbora A2A](https://github.com/Knuckles-Team/arbora/blob/331044ed7daec51a3633e0a7ea712293b2063bf3/specs/a2a/spec.md)
 
 Code: ../../native/tuig/src/main.rs:483
 

@@ -633,19 +633,10 @@ These local contracts do not close full served recovery, presentation parity or 
 |---|---|---|---|
 | TUIG-RUNTIME-R015.29.1 | `tests/test_shared_hook_consumers.py` and actual remote pre-commit installs | Exact pins preserve both stages and invocation flags. A clean linked worktree passes. | Altered configuration fails. Real hooks reject legacy markers, canonical edits and foreign Cargo targets. |
 
-## Modal keyboard ownership
-
-## Settings and MCP viewport access
-
-## Python operator documentation
-
-## Canonical run-inspection consumer evidence
-
 ## Unsupported image input boundary
 
 - `TUIG-RUNTIME-R012.5.1`: `tests/test_commands.py::TestImageCommand::test_cmd_image_refuses_without_reading` proves that empty, quoted, missing and malformed paths receive an unsupported notice with no reads or pending-part changes. `tests/test_client.py::test_image_command_refusal_preserves_next_text_submission` uses the real command, application part collector and client to prove the next text turn still submits existing text attachments. `test_non_text_parts_are_refused_before_any_request` rejects typed, legacy untyped, mixed and malformed unsupported parts before network access.
 
-### Bounded text-file evidence
 - `TUIG-RUNTIME-R012.5.2`: Retain the served PNG admission and oversized-file criteria. Refusing every image without reading it is not file-size validation or successful image admission.
 
 ## Nonblocking unary polling
