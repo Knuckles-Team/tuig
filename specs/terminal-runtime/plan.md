@@ -1768,7 +1768,7 @@ This source slice does not close R012.3.2. Hosted native checks, the actual
 client/backend restart journey and the full history-selection UI remain open.
 Agent Card stateTransitionHistory does not advertise model-history continuation.
 
-### Image input (TUIG-RUNTIME-R012.5.2.1 to R012.5.2.6)
+### Image input (TUIG-RUNTIME-R012.5.2.1 through TUIG-RUNTIME-R012.5.2.6)
 
 The feature splits across three owners. Tuig owns what the person sees and does. Arbora owns admission, limits and byte transport. Meristem owns the run that carries the image to the model. Tuig sends the image only through Arbora. Tuig holds no model endpoint and decides no limit.
 
@@ -1778,9 +1778,9 @@ Reuse. The attachment reuses the existing size checks in `TaskSubmission::new`. 
 
 Rendering. The view detects an inline-graphics protocol by a capability query with a 200 ms timeout. It shows `[image: name WxH size]` when the query fails.
 
-Cross-repo rows. ARBORA-A2A-R001.5.3 to R001.5.8 define admission, limits, transport, served limits, run hand-off and the served proof. MERISTEM-RUN-R017 to R017.5 define the run side. Each of those rows links back to TUIG-RUNTIME-R012.5.2.
+Cross-repo rows. ARBORA-A2A-R001.5.3 through ARBORA-A2A-R001.5.8 define admission, limits, transport, served limits, run hand-off and the served proof. MERISTEM-RUN-R017 through MERISTEM-RUN-R017.5 define the run side. Each of those rows links back to TUIG-RUNTIME-R012.5.2.
 
-Open questions for the owner. The clipboard reader choice (R012.5.2.2). Fail-closed behavior when served limits are unavailable (R012.5.2.3).
+Open questions for the owner. The clipboard reader choice (TUIG-RUNTIME-R012.5.2.2). Fail-closed behavior when served limits are unavailable (TUIG-RUNTIME-R012.5.2.3).
 
 ## Phase 2: Task approach
 
