@@ -633,19 +633,10 @@ These local contracts do not close full served recovery, presentation parity or 
 |---|---|---|---|
 | TUIG-RUNTIME-R015.29.1 | `tests/test_shared_hook_consumers.py` and actual remote pre-commit installs | Exact pins preserve both stages and invocation flags. A clean linked worktree passes. | Altered configuration fails. Real hooks reject legacy markers, canonical edits and foreign Cargo targets. |
 
-## Modal keyboard ownership
-
-## Settings and MCP viewport access
-
-## Python operator documentation
-
-## Canonical run-inspection consumer evidence
-
 ## Unsupported image input boundary
 
 - `TUIG-RUNTIME-R012.5.1`: `tests/test_commands.py::TestImageCommand::test_cmd_image_refuses_without_reading` proves that empty, quoted, missing and malformed paths receive an unsupported notice with no reads or pending-part changes. `tests/test_client.py::test_image_command_refusal_preserves_next_text_submission` uses the real command, application part collector and client to prove the next text turn still submits existing text attachments. `test_non_text_parts_are_refused_before_any_request` rejects typed, legacy untyped, mixed and malformed unsupported parts before network access.
 
-### Bounded text-file evidence
 - `TUIG-RUNTIME-R012.5.2`: Retain the served PNG admission and oversized-file criteria. Refusing every image without reading it is not file-size validation or successful image admission.
 
 ## Nonblocking unary polling
@@ -1721,3 +1712,11 @@ TUIG-RUNTIME-R012.3.2.2 remains open for the actual installed client and backend
 restart journey, context selection and prior-turn display. Record exact producer
 and consumer revisions. Refuse foreign contexts and incomplete history without
 submitting a fresh replacement. A wire fixture cannot close this row.
+
+## R013: workstream peer
+
+| Test ID | Requirement | Test | Expected observation |
+|---|---|---|---|
+| T-R013 | `TUIG-RUNTIME-R013` | Every child row (planned). | See each child. |
+| T-R013.1 | `TUIG-RUNTIME-R013.1` | `native/tuig/tests/workstream.rs::attach_renders_context_and_exit_writes_checkpoint` (planned) | The fake gateway receives attach with harness `tuig`, then checkpoint and detach at exit; a refusal renders and the session continues. |
+| T-R013.2 | `TUIG-RUNTIME-R013.2` | `native/tuig/tests/workstream.rs::pty_session_shows_a_harness_checkpoint_and_records_exit` (planned) | The PTY screen shows the harness checkpoint before the first prompt; the gateway records one checkpoint and one detach. |
