@@ -60,6 +60,10 @@ Native rendering includes task state, public output details, themes, keyboard
 and mouse scrolling, run inspection and host logs. Remote cancellation in the
 interactive view requires confirmation. `--observe-task` remains read-only.
 
+The entry path is `native/tuig/src/main.rs`; command selection lives in
+`cli.rs` and the authenticated client in `lib.rs`. Arbora runs in a separate
+process and owns admission, authentication and the served operations.
+
 With no selected task or prompt, `tuig` opens a one-task text composer.
 Enter submits; Ctrl+J adds a newline; Escape reviews status and `p` returns
 to the draft before submission. It never resubmits an unknown outcome.
