@@ -175,7 +175,7 @@ fn terminal_reasons_remain_distinct_and_unknown_is_unavailable() {
     assert_eq!(terminal_reason(Some("future-reason")), "unavailable");
 }
 
-// spec: TUIG-RUNTIME-R010.7
+// spec: TUIG-RUNTIME-R010.7, TUIG-RUNTIME-R015.47
 #[test]
 fn refusals_and_run_switch_clear_all_protected_display_values() {
     for refusal in [
