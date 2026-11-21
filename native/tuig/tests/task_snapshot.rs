@@ -192,6 +192,30 @@ async fn bounds_snapshot_response_size() {
     server.await.unwrap();
 }
 
+// spec: TUIG-RUNTIME-R001.5
+#[tokio::test]
+async fn input_required_is_displayed_without_effect() {
+    let mut response = snapshot();
+    response["result"]["status"]["state"] = json!("input-required");
+    response["result"]["metadata"]["arbora"]["approval"] = json!({
+        "status": "pending",
+        "pendingCallDigest": "c".repeat(64)
+    });
+    let (url, server) = serve("200 OK", &response.to_string()).await;
+    let task = ArboraClient::new(&url, Some("fixture-token"))
+        .unwrap()
+        .get_task("task-1")
+        .await
+        .unwrap();
+    assert_eq!(task.state, TaskState::InputRequired);
+    let request = server.await.unwrap();
+    let (headers, body) = request.split_once("\r\n\r\n").unwrap();
+    assert!(headers.to_lowercase().contains("authorization: bearer fixture-token"));
+    let body: Value = serde_json::from_str(body).unwrap();
+    assert_eq!(body["method"], "tasks/get");
+    assert_eq!(body["params"], json!({"id": "task-1"}));
+}
+
 // spec: TUIG-RUNTIME-R002.1.3.2.2.3
 // spec: TUIG-RUNTIME-R002.1.3.2.2.2.3
 #[tokio::test]
