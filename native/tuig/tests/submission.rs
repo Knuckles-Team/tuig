@@ -198,7 +198,7 @@ async fn malformed_or_refused_submission_never_invents_a_task() {
     }
 }
 
-// spec: TUIG-RUNTIME-R002.1.3.1
+// spec: TUIG-RUNTIME-R002.1.3.1, TUIG-RUNTIME-R001.4
 #[tokio::test]
 async fn refusal_redirect_invalid_json_and_oversize_remain_unknown_without_retry() {
     let submission = TaskSubmission::new("Read the fixture").unwrap();

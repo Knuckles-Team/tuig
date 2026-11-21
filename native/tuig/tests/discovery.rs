@@ -70,7 +70,7 @@ async fn refuses_http_errors_redirects_and_malformed_cards() {
     }
 }
 
-// spec: TUIG-RUNTIME-R002.7
+// spec: TUIG-RUNTIME-R002.7, TUIG-RUNTIME-R001.2
 #[test]
 fn rejects_unsafe_configuration_without_network() {
     for url in [

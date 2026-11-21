@@ -427,7 +427,7 @@ mod tests {
         assert!(decode_run(&value, "r", wall(), now).is_err());
     }
 
-    // spec: TUIG-RUNTIME-R010.8
+    // spec: TUIG-RUNTIME-R010.8, TUIG-RUNTIME-R015.47
     #[test]
     fn available_empty_is_distinct_from_unavailable() {
         let now = Instant::now();
@@ -835,7 +835,7 @@ mod transport_tests {
         }
     }
 
-    // spec: TUIG-RUNTIME-R008.2.3.2.2.1
+    // spec: TUIG-RUNTIME-R008.2.3.2.2.1, TUIG-RUNTIME-R015.47
     #[tokio::test]
     async fn public_events_refuse_unregistered_denied_and_wrong_digest_reads() {
         let (endpoint, task) = server(vec![(200, registry(serde_json::json!([])))]).await;

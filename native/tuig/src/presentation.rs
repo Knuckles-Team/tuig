@@ -545,7 +545,7 @@ mod theme_switch_tests {
     }
 
     // spec: TUIG-RUNTIME-R008.2.3.2.1
-    // spec: TUIG-RUNTIME-R008.3, TUIG-RUNTIME-R008.3.1
+    // spec: TUIG-RUNTIME-R008.3, TUIG-RUNTIME-R008.3.1, TUIG-RUNTIME-R015.53
     #[test]
     fn runtime_switch_renders_each_palette_in_all_views() {
         let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
@@ -616,7 +616,7 @@ mod theme_switch_tests {
         }
     }
 
-    // spec: TUIG-RUNTIME-R008.2.3.2.1
+    // spec: TUIG-RUNTIME-R008.2.3.2.1, TUIG-RUNTIME-R015.53
     #[test]
     fn runtime_switch_preserves_scroll_and_no_color() {
         let status = (0..100).map(|n| format!("row {n}\n")).collect::<String>();
@@ -665,7 +665,7 @@ mod theme_switch_tests {
         }
     }
 
-    // spec: TUIG-RUNTIME-R008.2.3.2.1
+    // spec: TUIG-RUNTIME-R008.2.3.2.1, TUIG-RUNTIME-R015.53
     #[test]
     fn only_unmodified_f6_presses_switch_the_theme() {
         let mut themes = ThemeSelection::new("nord", "");

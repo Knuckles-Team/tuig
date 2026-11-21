@@ -88,7 +88,7 @@ fn diff_precedes_explicit_choice_and_preserves_missing_newline() {
         Err(ApprovalError::AlreadyAnswered)
     );
 }
-// spec: TUIG-RUNTIME-R011.13
+// spec: TUIG-RUNTIME-R011.13, TUIG-RUNTIME-R015.54
 #[test]
 fn denied_write_and_command_produce_only_metadata() {
     let mut command = request();

@@ -30,7 +30,7 @@ def test_svg_preserves_cells_colors_inverse_and_escapes():
         terminal_svg(screen, "Unsupported ANSI color")
 
 
-@pytest.mark.spec("TUIG-RUNTIME-R008.3")
+@pytest.mark.spec("TUIG-RUNTIME-R008.3", "TUIG-RUNTIME-R016")
 def test_committed_gallery_has_matching_provenance_and_safe_svg():
     root = Path(__file__).parents[1]
     assets = root / "docs/assets/native"
@@ -57,7 +57,7 @@ def test_committed_gallery_has_matching_provenance_and_safe_svg():
             )
 
 
-@pytest.mark.spec("TUIG-RUNTIME-R008.3", "TUIG-RUNTIME-R010.12.1")
+@pytest.mark.spec("TUIG-RUNTIME-R008.3", "TUIG-RUNTIME-R010.12.1", "TUIG-RUNTIME-R016")
 @pytest.mark.skipif(
     not os.environ.get("TUI_NATIVE_TEST_BINARY"),
     reason="Requires compiled native binary",
