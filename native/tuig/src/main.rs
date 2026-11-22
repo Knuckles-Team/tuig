@@ -1374,7 +1374,13 @@ mod tests {
         let status = snapshot_status(&snapshot);
         assert!(status.contains("State: input-required"));
         assert!(status.contains("Approval: pending; not granted locally."));
-        for effect in ["Approval: granted", "approved", "confirmed", "executed", "effect applied"] {
+        for effect in [
+            "Approval: granted",
+            "approved",
+            "confirmed",
+            "executed",
+            "effect applied",
+        ] {
             assert!(!status.contains(effect));
         }
         let working = task_read("task-one", "context-two", Some("run-three"));

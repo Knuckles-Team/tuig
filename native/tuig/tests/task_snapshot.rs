@@ -210,7 +210,11 @@ async fn input_required_is_displayed_without_effect() {
     assert_eq!(task.state, TaskState::InputRequired);
     let request = server.await.unwrap();
     let (headers, body) = request.split_once("\r\n\r\n").unwrap();
-    assert!(headers.to_lowercase().contains("authorization: bearer fixture-token"));
+    assert!(
+        headers
+            .to_lowercase()
+            .contains("authorization: bearer fixture-token")
+    );
     let body: Value = serde_json::from_str(body).unwrap();
     assert_eq!(body["method"], "tasks/get");
     assert_eq!(body["params"], json!({"id": "task-1"}));
