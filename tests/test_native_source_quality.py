@@ -20,7 +20,9 @@ def _readme() -> str:
 
 def _cli_help() -> str:
     main = (ROOT / "native/tuig/src/main.rs").read_text()
-    return re.search(r'const CLI_HELP: &str = "([^"]*)"', main).group(1)
+    match = re.search(r'const CLI_HELP: &str = "([^"]*)"', main)
+    assert match is not None, "CLI_HELP constant must exist in main.rs"
+    return match.group(1)
 
 
 @pytest.mark.spec("TUIG-RUNTIME-R015.11")
