@@ -4,6 +4,10 @@ Tuig is the Rust/Ratatui terminal frontend for Arbora. The brand is pronounced
 “twig” (/twɪɡ/); the command remains `tuig`. There is one executable
 and one UI implementation. The former Python/Textual frontend is retired.
 
+In this page: [Native terminal preview](#native-terminal-preview),
+[Installation](#installation), [Connect](#connect),
+[Current boundary](#current-boundary) and [License](#license).
+
 ## Native terminal preview
 
 ![Native tuig answer with folded public details and synthetic data](docs/assets/native/answer.svg)
@@ -55,6 +59,10 @@ task. Its four-hour observation bound does not stop backend work.
 Native rendering includes task state, public output details, themes, keyboard
 and mouse scrolling, run inspection and host logs. Remote cancellation in the
 interactive view requires confirmation. `--observe-task` remains read-only.
+
+The entry path is `native/tuig/src/main.rs`; command selection lives in
+`cli.rs` and the authenticated client in `lib.rs`. Arbora runs in a separate
+process and owns admission, authentication and the served operations.
 
 With no selected task or prompt, `tuig` opens a one-task text composer.
 Enter submits; Ctrl+J adds a newline; Escape reviews status and `p` returns
