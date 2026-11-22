@@ -6,6 +6,7 @@ pub mod host_logs;
 pub mod app {
     pub use crate::host_logs::{HostLaunchReceipt, HostLogReader, run_host_terminal};
 }
+pub mod operation_command;
 pub mod public_run_events;
 pub mod recovery;
 pub mod run_inspector;

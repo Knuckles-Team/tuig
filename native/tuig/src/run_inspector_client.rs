@@ -4,6 +4,7 @@ use crate::run_inspector::{
     RunInspector, RunProjection,
 };
 use crate::{ArboraClient, read_task_response};
+use reqwest::{Url, header};
 use serde_json::Value;
 use std::time::{Duration, Instant};
 use time::{OffsetDateTime, UtcOffset, format_description::well_known::Rfc3339};
@@ -116,6 +117,31 @@ impl ArboraClient {
             .and_then(|(_, result)| result.get("value").cloned().ok_or(ReadRefusal::Unavailable))
     }
 
+    /// Invoke one registry-advertised operation with the unchanged JSON object body.
+    /// // spec: TUIG-RUNTIME-R001.1
+    pub async fn invoke_operation(
+        &self,
+        operation: &str,
+        payload: &str,
+    ) -> Result<Value, ReadRefusal> {
+        if !self.authenticated && self.auth_mode != crate::AuthMode::None {
+            return Err(ReadRefusal::Denied);
+        }
+        if operation.is_empty()
+            || operation.len() > 512
+            || operation.chars().any(char::is_control)
+        {
+            return Err(ReadRefusal::Unavailable);
+        }
+        let (url, digest, advertised) = self.advertised_registry().await?;
+        if !advertised.iter().any(|id| id == operation) {
+            return Err(ReadRefusal::Unavailable);
+        }
+        self.dispatch_advertised(operation, payload, &url, &digest)
+            .await
+            .and_then(|result| result.get("value").cloned().ok_or(ReadRefusal::Unavailable))
+    }
+
     async fn read_run_operation_choice(
         &self,
         operations: &[(&str, Value)],
@@ -128,6 +154,18 @@ impl ArboraClient {
         {
             return Err(ReadRefusal::Unavailable);
         }
+        let (url, digest, advertised) = self.advertised_registry().await?;
+        let (operation, params) = operations
+            .iter()
+            .find(|(operation, _)| advertised.iter().any(|id| id == *operation))
+            .ok_or(ReadRefusal::Unavailable)?;
+        let value = self
+            .dispatch_advertised(operation, &params.to_string(), &url, &digest)
+            .await?;
+        Ok(((*operation).to_owned(), value))
+    }
+
+    async fn advertised_registry(&self) -> Result<(Url, String, Vec<String>), ReadRefusal> {
         let mut url = self.card_url.clone();
         url.set_path("/api/v1/registry");
         let registry = response_json(self.http.get(url.clone()).send().await).await?;
@@ -139,20 +177,35 @@ impl ArboraClient {
         if registry.get("api_version").and_then(Value::as_str) != Some("v1") {
             return Err(ReadRefusal::Unavailable);
         }
-        let advertised = registry
+        let ops = registry
             .get("ops")
             .and_then(Value::as_array)
             .ok_or(ReadRefusal::Unavailable)?;
-        let (operation, params) = operations
+        let advertised = ops
             .iter()
-            .find(|(operation, _)| {
-                advertised
-                    .iter()
-                    .any(|op| op.get("id").and_then(Value::as_str) == Some(*operation))
-            })
-            .ok_or(ReadRefusal::Unavailable)?;
+            .filter_map(|op| op.get("id").and_then(Value::as_str).map(str::to_owned))
+            .collect();
+        Ok((url, digest.to_owned(), advertised))
+    }
+
+    async fn dispatch_advertised(
+        &self,
+        operation: &str,
+        payload: &str,
+        base: &Url,
+        digest: &str,
+    ) -> Result<Value, ReadRefusal> {
+        let mut url = base.clone();
         url.set_path(&format!("/api/v1/ops/{operation}"));
-        let body = response_json(self.http.post(url).json(params).send().await).await?;
+        let body = response_json(
+            self.http
+                .post(url)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(payload.to_owned())
+                .send()
+                .await,
+        )
+        .await?;
         if body
             .pointer("/meta/registry_digest")
             .and_then(Value::as_str)
@@ -162,11 +215,7 @@ impl ArboraClient {
         {
             return Err(ReadRefusal::Unavailable);
         }
-        let value = body
-            .get("result")
-            .cloned()
-            .ok_or(ReadRefusal::Unavailable)?;
-        Ok(((*operation).to_owned(), value))
+        body.get("result").cloned().ok_or(ReadRefusal::Unavailable)
     }
 }
 

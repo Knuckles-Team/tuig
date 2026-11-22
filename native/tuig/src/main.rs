@@ -332,6 +332,7 @@ fn snapshot_status(snapshot: &TaskSnapshot) -> String {
 enum ReadStatus {
     Discovery(String),
     Task(TaskSnapshot),
+    Operation(String),
 }
 
 async fn read_status(
@@ -368,6 +369,7 @@ fn completed_status(
             }
             snapshot_status(&snapshot)
         }
+        Ok(Ok(ReadStatus::Operation(text))) => text,
         Ok(Err(error)) => error.to_owned(),
         Err(error) if error.is_cancelled() => {
             "Local read canceled. No remote task was canceled.".to_owned()
@@ -416,6 +418,9 @@ impl Cancellation {
 
 const CANCELLATION_UNKNOWN: &str =
     "Cancellation outcome unknown. Press r to read task state before trying again.";
+
+const OPERATION_REFUSED: &str =
+    "Operation refused: not advertised in the Arbora registry, the registry read failed, or the response envelope was refused.";
 
 fn request_completed(
     result: Result<Result<ReadStatus, &'static str>, tokio::task::JoinError>,
@@ -610,6 +615,24 @@ async fn run(
                         if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) { return Ok(()); }
                         if composer.open {
                             if let Some(text) = composer.key(key) {
+                                if let Some(command) = tuig_native::operation_command::OperationCommand::parse_command(&text) {
+                                    request.abort();
+                                    let client = client.clone();
+                                    let operation = command.operation().to_owned();
+                                    let payload = command.payload().to_owned();
+                                    let status_text = format!("Invoking {operation}...");
+                                    request = tokio::spawn(async move {
+                                        client
+                                            .invoke_operation(&operation, &payload)
+                                            .await
+                                            .map(|value| ReadStatus::Operation(format!("Operation {operation}:\n{value}")))
+                                            .map_err(|_| OPERATION_REFUSED)
+                                    });
+                                    composer.open = false;
+                                    pending = true;
+                                    status = status_text;
+                                    continue;
+                                }
                                 let submission = TaskSubmission::new(&text)?;
                                 request.abort();
                                 let client = client.clone();
