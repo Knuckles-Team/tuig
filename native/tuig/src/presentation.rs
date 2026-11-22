@@ -684,4 +684,25 @@ mod theme_switch_tests {
         switch(&mut themes);
         assert_eq!(themes.style(), presentation_style("gruvbox", ""));
     }
+
+    // spec: TUIG-RUNTIME-R015.42.1
+    #[test]
+    fn unknown_theme_falls_back_to_first_palette() {
+        let first = ThemeSelection::new(THEMES[0], "");
+        for unknown in ["", "definitely-not-a-theme", "tokyo night", "nord "] {
+            assert_eq!(
+                ThemeSelection::new(unknown, "").style(),
+                first.style(),
+                "{unknown:?}"
+            );
+        }
+        // NO_COLOR disables theme colors for any theme, known or unknown.
+        for theme in ["nord", "canopy", "definitely-not-a-theme"] {
+            assert_eq!(
+                ThemeSelection::new(theme, "1").style(),
+                Style::reset(),
+                "{theme:?}"
+            );
+        }
+    }
 }
