@@ -38,10 +38,7 @@ async fn serve(
             let mut buffer = Vec::new();
             loop {
                 let mut chunk = [0u8; 4096];
-                let count = match read.read(&mut chunk).await {
-                    Ok(count) => count,
-                    Err(_) => 0,
-                };
+                let count = read.read(&mut chunk).await.unwrap_or_default();
                 if count == 0 {
                     break;
                 }
@@ -76,9 +73,9 @@ async fn serve(
             });
             let status_line = if digest.is_none() {
                 "HTTP/1.1 404 Not Found"
-            } else if method == "GET" && path == "/api/v1/registry" {
-                "HTTP/1.1 200 OK"
-            } else if method == "POST" && path.starts_with("/api/v1/ops/") {
+            } else if (method == "GET" && path == "/api/v1/registry")
+                || (method == "POST" && path.starts_with("/api/v1/ops/"))
+            {
                 "HTTP/1.1 200 OK"
             } else {
                 "HTTP/1.1 404 Not Found"
