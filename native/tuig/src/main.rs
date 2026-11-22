@@ -1358,7 +1358,7 @@ mod tests {
     // spec: TUIG-RUNTIME-R001.5
     #[test]
     fn input_required_displays_pending_approval_without_asserting_an_effect() {
-        let mut task = serde_json::json!({
+        let task = serde_json::json!({
             "kind": "task", "id": "task-one", "contextId": "context-two",
             "status": {"state": "input-required"},
             "metadata": {"arbora": {"runId": "run-three", "approval": {
