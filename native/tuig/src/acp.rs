@@ -1,4 +1,5 @@
 //! Narrow ACP v1 text transport. Authority and agent execution remain in Arbora.
+use crate::coding_approval::{ApprovalError, Capability, CodingSessionView, contained_path};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 
@@ -292,4 +293,25 @@ pub fn completed(result: &Value) -> Result<(), &'static str> {
         Some("cancelled") => Err("Local ACP turn canceled"),
         _ => Err("Local ACP turn did not complete successfully"),
     }
+}
+
+/// Named capability handler that serves a local host read.
+///
+/// `fs/read_text_file` is served without a prompt inside the granted
+/// workspace root. Every other method is refused here: write and
+/// terminal effects require the Arbora approval exchange. The granted
+/// scope is the producer grant held by the session view; the handler
+/// cannot widen it, and no trust-mode bypass skips containment.
+// spec: TUIG-RUNTIME-R011.2
+pub fn serve_local_read(
+    view: &CodingSessionView,
+    method: &str,
+    path: &str,
+) -> Result<String, ApprovalError> {
+    let capability = Capability::parse(method)?;
+    if capability != Capability::ReadText || !view.allows(method) {
+        return Err(ApprovalError::CapabilityNotGranted);
+    }
+    let resolved = contained_path(view.workspace_root(), path)?;
+    std::fs::read_to_string(&resolved).map_err(|_| ApprovalError::InvalidMetadata)
 }
