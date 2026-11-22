@@ -419,8 +419,7 @@ impl Cancellation {
 const CANCELLATION_UNKNOWN: &str =
     "Cancellation outcome unknown. Press r to read task state before trying again.";
 
-const OPERATION_REFUSED: &str =
-    "Operation refused: not advertised in the Arbora registry, the registry read failed, or the response envelope was refused.";
+const OPERATION_REFUSED: &str = "Operation refused: not advertised in the Arbora registry, the registry read failed, or the response envelope was refused.";
 
 fn request_completed(
     result: Result<Result<ReadStatus, &'static str>, tokio::task::JoinError>,

@@ -22,7 +22,11 @@ async fn serve(
     digest: Option<String>,
     ops: Vec<String>,
     op_response: Value,
-) -> (String, tokio::task::JoinHandle<()>, Arc<Mutex<Vec<Captured>>>) {
+) -> (
+    String,
+    tokio::task::JoinHandle<()>,
+    Arc<Mutex<Vec<Captured>>>,
+) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     let captured = Arc::new(Mutex::new(Vec::new()));
@@ -115,7 +119,12 @@ async fn op_command_builds_one_versioned_request() {
         "meta": {"registry_digest": DIGEST, "api_version": "v1"},
         "result": {"value": {"runId": "run-1", "revision": 4}},
     });
-    let (url, server, captured) = serve(Some(DIGEST.to_owned()), vec!["runs.get".to_owned()], op_response.clone()).await;
+    let (url, server, captured) = serve(
+        Some(DIGEST.to_owned()),
+        vec!["runs.get".to_owned()],
+        op_response.clone(),
+    )
+    .await;
     let client = ArboraClient::new(&url, Some("fixture-token")).unwrap();
     let payload = r#"{ "runId" : "run-1",  "nested":{ "a":[1,2] } }"#;
     let command = OperationCommand::parse_command(&format!("/op runs.get {payload}")).unwrap();
@@ -131,17 +140,36 @@ async fn op_command_builds_one_versioned_request() {
         (captured[0].method.as_str(), captured[0].path.as_str()),
         ("GET", "/api/v1/registry")
     );
-    assert!(captured[0].headers.contains("authorization: bearer fixture-token"));
+    assert!(
+        captured[0]
+            .headers
+            .contains("authorization: bearer fixture-token")
+    );
     assert_eq!(
         (captured[1].method.as_str(), captured[1].path.as_str()),
         ("POST", "/api/v1/ops/runs.get")
     );
-    assert!(captured[1].headers.contains("authorization: bearer fixture-token"));
-    assert!(captured[1].headers.contains("content-type: application/json"));
-    assert_eq!(captured[1].body, payload, "payload reaches the client unchanged");
+    assert!(
+        captured[1]
+            .headers
+            .contains("authorization: bearer fixture-token")
+    );
+    assert!(
+        captured[1]
+            .headers
+            .contains("content-type: application/json")
+    );
+    assert_eq!(
+        captured[1].body, payload,
+        "payload reaches the client unchanged"
+    );
     let parsed: Value = serde_json::from_str(&captured[1].body).unwrap();
     assert_eq!(parsed["nested"]["a"], json!([1, 2]));
-    assert_eq!(effect_requests(&captured).len(), 1, "exactly one versioned request");
+    assert_eq!(
+        effect_requests(&captured).len(),
+        1,
+        "exactly one versioned request"
+    );
 }
 
 // spec: TUIG-RUNTIME-R001.1
@@ -155,7 +183,12 @@ async fn refusal_cases_make_zero_effect_requests() {
 
     // An operation the registry does not advertise never reaches a dispatch.
     {
-        let (url, server, captured) = serve(Some(DIGEST.to_owned()), vec!["runs.get".to_owned()], ok_response.clone()).await;
+        let (url, server, captured) = serve(
+            Some(DIGEST.to_owned()),
+            vec!["runs.get".to_owned()],
+            ok_response.clone(),
+        )
+        .await;
         let client = ArboraClient::new(&url, Some("fixture-token")).unwrap();
         let command = OperationCommand::parse_command("/op runs.missing {}").unwrap();
         assert!(
@@ -186,7 +219,12 @@ async fn refusal_cases_make_zero_effect_requests() {
             "meta": {"registry_digest": "other-digest-0002", "api_version": "v1"},
             "result": {"value": {}},
         });
-        let (url, server, _captured) = serve(Some(DIGEST.to_owned()), vec!["runs.get".to_owned()], bad_response).await;
+        let (url, server, _captured) = serve(
+            Some(DIGEST.to_owned()),
+            vec!["runs.get".to_owned()],
+            bad_response,
+        )
+        .await;
         let client = ArboraClient::new(&url, Some("fixture-token")).unwrap();
         assert!(client.invoke_operation("runs.get", "{}").await.is_err());
         server.abort();

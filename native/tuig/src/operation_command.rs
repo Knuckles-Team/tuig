@@ -41,9 +41,7 @@ impl OperationCommand {
             .find(char::is_whitespace)
             .ok_or(OperationCommandError::MalformedJson)?;
         let operation = input[..split].to_owned();
-        if operation.is_empty()
-            || operation.len() > 512
-            || operation.chars().any(char::is_control)
+        if operation.is_empty() || operation.len() > 512 || operation.chars().any(char::is_control)
         {
             return Err(OperationCommandError::InvalidOperation);
         }
@@ -77,7 +75,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(command.operation(), "runs.get");
-        assert_eq!(command.payload(), "{\"run_id\":\"r1\", \"nested\":{\"a\":[1,2]}}");
+        assert_eq!(
+            command.payload(),
+            "{\"run_id\":\"r1\", \"nested\":{\"a\":[1,2]}}"
+        );
         let parsed: Value = serde_json::from_str(command.payload()).unwrap();
         assert_eq!(parsed["nested"]["a"][1], 2);
     }
@@ -99,8 +100,14 @@ mod tests {
             (" runs.get 42", OperationCommandError::NotAnObject),
             (" runs.get null", OperationCommandError::NotAnObject),
             (" runs.get true", OperationCommandError::NotAnObject),
-            (" runs.get {\"a\":NaN}", OperationCommandError::MalformedJson),
-            (" runs.get {\"nested\":{\"b\":Infinity}}", OperationCommandError::MalformedJson),
+            (
+                " runs.get {\"a\":NaN}",
+                OperationCommandError::MalformedJson,
+            ),
+            (
+                " runs.get {\"nested\":{\"b\":Infinity}}",
+                OperationCommandError::MalformedJson,
+            ),
             (" runs.get {a:1}", OperationCommandError::MalformedJson),
             (" runs.get ", OperationCommandError::MalformedJson),
             (

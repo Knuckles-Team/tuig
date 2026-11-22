@@ -127,9 +127,7 @@ impl ArboraClient {
         if !self.authenticated && self.auth_mode != crate::AuthMode::None {
             return Err(ReadRefusal::Denied);
         }
-        if operation.is_empty()
-            || operation.len() > 512
-            || operation.chars().any(char::is_control)
+        if operation.is_empty() || operation.len() > 512 || operation.chars().any(char::is_control)
         {
             return Err(ReadRefusal::Unavailable);
         }
