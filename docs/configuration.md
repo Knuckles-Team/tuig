@@ -10,7 +10,7 @@
 | `AGENT_TASK_ID` | Read an existing task, not a resumed conversation. |
 | `AGENT_SUBMISSION_TIMEOUT_SECONDS` | 1..900 seconds; default 300. |
 | `AGENT_INCLUDE_COMMITTED_EVENT` | `true` or `false` for committed-event reads. |
-| `AGENT_THEME` | Native terminal theme. |
+| `AGENT_THEME` | Native terminal theme; an unknown value selects the first registered theme. |
 | `NO_COLOR` | Nonempty disables theme colors. |
 
 Legacy Python settings, SQLite stores and hooks are not consumed by `tuig`.
