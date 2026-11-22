@@ -197,3 +197,259 @@ def _license_declarations_agree(
     cargo_names_mit = 'license = "MIT"' in cargo
     readme_links_license = "[MIT](LICENSE)" in readme
     return is_mit and pyproject_names_license and cargo_names_mit and readme_links_license
+
+
+import copy
+import json
+import os
+import subprocess
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+import yaml
+
+SUPPORT_MODULE = ROOT / "native" / "tuig" / "tests" / "support" / "mod.rs"
+ENV_EXAMPLE = ROOT / ".env.example"
+WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+
+
+def _shared_fixture_entry(source: str) -> bool:
+    """The shared loopback fixture must stay one entry point."""
+    return "pub async fn serve_raw" in source and "TcpListener::bind" in source
+
+
+@pytest.mark.spec("TUIG-RUNTIME-R015.37")
+def test_shared_fixture_entry():
+    source = SUPPORT_MODULE.read_text()
+    assert _shared_fixture_entry(source), "support/mod.rs must define serve_raw"
+    importers = sorted(
+        path.name
+        for path in (ROOT / "native" / "tuig" / "tests").glob("*.rs")
+        if "mod support" in path.read_text() or "support::" in path.read_text()
+    )
+    assert len(importers) >= 4, f"shared entry must be reused: {importers}"
+    assert "env_clear()" in (ROOT / "native" / "tuig" / "tests" / "cli_help.rs").read_text()
+    assert not _shared_fixture_entry("pub fn unrelated(value: u32) -> u32 { value }")
+
+
+def _env_example_is_credential_free(text: str) -> bool:
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if not re.fullmatch(r"[A-Z][A-Z0-9_]*=[^\s]*", line):
+            return False
+        key, value = line.split("=", 1)
+        if key == "AGENT_URL":
+            if not re.fullmatch(r"https?://(localhost|127\.0\.0\.1):8000", value):
+                return False
+        elif key == "AGENT_THEME":
+            if not re.fullmatch(r"[a-z][a-z-]*", value):
+                return False
+        else:
+            return False
+    return True
+
+
+@pytest.mark.spec("TUIG-RUNTIME-R015.43")
+def test_native_env_example_is_credential_free():
+    text = ENV_EXAMPLE.read_text()
+    assert _env_example_is_credential_free(text)
+    assert re.search(r"^AGENT_URL=http://localhost:8000$", text, re.M)
+    assert re.search(r"^AGENT_THEME=tokyo-night$", text, re.M)
+    assert "AGENT_URL" in _readme()
+    assert not _env_example_is_credential_free("AGENT_BEARER_TOKEN=secret-value\n")
+    assert not _env_example_is_credential_free("AGENT_URL=https://remote.example.com:8443\n")
+    assert not _env_example_is_credential_free("AGENT_URL=http://localhost:8000\nAGENT_THEME=run $(rm -rf /)\n")
+
+
+def _native_ci_gates(workflow: dict) -> tuple[bool, bool]:
+    job = workflow.get("jobs", {}).get("native-checks", {})
+    runs = [str(step.get("run", "")) for step in job.get("steps", []) if isinstance(step, dict)]
+    fmt = any("fmt" in run and "--check" in run for run in runs)
+    clippy = any("clippy" in run and "-D warnings" in run for run in runs)
+    return fmt, clippy
+
+
+@pytest.mark.spec("TUIG-RUNTIME-R015.48")
+def test_native_ci_runs_fmt_and_clippy_gates():
+    workflow = yaml.safe_load(WORKFLOW.read_text())
+    fmt, clippy = _native_ci_gates(workflow)
+    assert fmt, "native-checks must run cargo fmt --check"
+    assert clippy, "native-checks must run cargo clippy -D warnings"
+    no_fmt = copy.deepcopy(workflow)
+    for step in no_fmt["jobs"]["native-checks"]["steps"]:
+        if isinstance(step, dict) and "fmt" in str(step.get("run", "")):
+            step["run"] = str(step["run"]).replace("--check", "")
+    assert not _native_ci_gates(no_fmt)[0]
+    no_flag = copy.deepcopy(workflow)
+    for step in no_flag["jobs"]["native-checks"]["steps"]:
+        if isinstance(step, dict) and "clippy" in str(step.get("run", "")):
+            step["run"] = str(step["run"]).replace("-D warnings", "-D nothing")
+    assert not _native_ci_gates(no_flag)[1]
+
+
+def _serve_task_server(state: str, status: int = 200) -> ThreadingHTTPServer:
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            length = int(self.headers["Content-Length"])
+            self.rfile.read(length)
+            if status != 200:
+                self.send_response(status)
+                self.end_headers()
+                return
+            task = {
+                "kind": "task",
+                "id": "task-1",
+                "contextId": "context-1",
+                "metadata": {"arbora": {"runId": "run-1"}},
+                "status": {"state": state},
+            }
+            body = json.dumps(
+                {"jsonrpc": "2.0", "id": "task-snapshot", "result": task}
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+def _stop(server: ThreadingHTTPServer) -> None:
+    server.shutdown()
+    server.server_close()
+
+
+def _observer_environment(outside: Path, server: ThreadingHTTPServer) -> dict[str, str]:
+    # Minimal loopback environment: no ambient credentials, no ambient task.
+    return {
+        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "HOME": str(outside),
+        "AGENT_URL": f"http://127.0.0.1:{server.server_port}",
+        "AGENT_AUTH_MODE": "none",
+    }
+
+
+def _observer_outcome(
+    binary: str, outside: Path, server: ThreadingHTTPServer
+) -> tuple[int | None, str, str]:
+    """Launch the installed observer and report how it treats the served read.
+
+    Returns the exit code (a negative signal code when the test stopped a
+    still-observing process) plus the captured stdout and stderr.
+    """
+    process = subprocess.Popen(
+        [binary, "--headless", "--observe-task", "task-1"],
+        cwd=outside,
+        env=_observer_environment(outside, server),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    if process.stdout is None or process.stderr is None:
+        raise AssertionError("piped stdout and stderr are required")
+    stdout_pipe, stderr_pipe = process.stdout, process.stderr
+    seen = ""
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            break
+        line = stdout_pipe.readline()
+        if not line:
+            break
+        seen += line
+        if "State:" in line:
+            break
+    if process.poll() is None:
+        # A finished observer exits on its own right after its last
+        # snapshot; give it a moment before stopping a still-observing one.
+        grace = time.monotonic() + 3
+        while time.monotonic() < grace and process.poll() is None:
+            time.sleep(0.05)
+        if process.poll() is None:
+            process.terminate()
+    process.wait(timeout=10)
+    stdout_text = seen + stdout_pipe.read()
+    stderr_text = stderr_pipe.read()
+    return process.returncode, stdout_text, stderr_text
+
+
+@pytest.mark.spec("TUIG-RUNTIME-R015.70")
+@pytest.mark.skipif(
+    not os.environ.get("TUI_NATIVE_TEST_BINARY"),
+    reason="Requires the installed native binary artifact",
+)
+def test_source_quality_entry_wiring(tmp_path: Path) -> None:
+    binary = os.environ["TUI_NATIVE_TEST_BINARY"]
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    server = _serve_task_server("completed")
+    try:
+        help_result = subprocess.run(
+            [binary, "--help"],
+            cwd=outside,
+            env=_observer_environment(outside, server),
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert help_result.returncode == 0
+        assert "Tuig: native Arbora terminal" in help_result.stdout
+        code, out, err = _observer_outcome(binary, outside, server)
+    finally:
+        _stop(server)
+    assert code == 0
+    assert "Task ID: task-1" in out
+    assert "State: completed" in out
+    assert "Arbora task read refused or unavailable" not in out + err
+
+
+@pytest.mark.spec("TUIG-RUNTIME-R015.71")
+@pytest.mark.skipif(
+    not os.environ.get("TUI_NATIVE_TEST_BINARY"),
+    reason="Requires the installed native binary artifact",
+)
+def test_installed_observer_distinguishes_denied_and_empty_reads(tmp_path: Path) -> None:
+    binary = os.environ["TUI_NATIVE_TEST_BINARY"]
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    # The authenticated read returns a task with no committed result yet:
+    # an empty read, not a refusal.
+    empty_server = _serve_task_server("submitted")
+    try:
+        empty_code, empty_out, empty_err = _observer_outcome(
+            binary, outside, empty_server
+        )
+    finally:
+        _stop(empty_server)
+    denied_server = _serve_task_server("completed", status=401)
+    try:
+        denied_code, denied_out, denied_err = _observer_outcome(
+            binary, outside, denied_server
+        )
+    finally:
+        _stop(denied_server)
+    # The empty read keeps the observer under observation: the snapshot is
+    # shown, no denial surfaces, and the observer is still polling when the
+    # test stops it.
+    assert empty_code is not None and empty_code < 0, (
+        "the empty-read observer must still be polling, "
+        f"exited {empty_code}: {empty_out} {empty_err}"
+    )
+    assert "Task ID: task-1" in empty_out
+    assert "State: submitted" in empty_out
+    assert "Arbora task read refused or unavailable" not in empty_out + empty_err
+    # The denied read fails fast with the refusal and no task data at all.
+    assert denied_code == 1
+    assert "Arbora task read refused or unavailable" in denied_err
+    assert "Task ID:" not in denied_out
+    # The installed observer shows the two reads differently.
+    assert (empty_out, empty_err) != (denied_out, denied_err)
