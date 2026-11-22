@@ -318,8 +318,13 @@ fn snapshot_status(snapshot: &TaskSnapshot) -> String {
         TaskState::Failed => "failed",
         TaskState::Rejected => "rejected",
     };
+    let approval = if snapshot.state == TaskState::InputRequired {
+        "Approval: pending; not granted locally.\n"
+    } else {
+        ""
+    };
     format!(
-        "Task ID: {}\nContext ID: {}\nRun ID: {}\nState: {state}\n{}\n\n{}\n\n{}",
+        "Task ID: {}\nContext ID: {}\nRun ID: {}\nState: {state}\n{approval}\n{}\n\n{}\n\n{}",
         snapshot.correlation.task_id(),
         snapshot.correlation.context_id(),
         snapshot.correlation.run_id().unwrap_or("unavailable"),
@@ -1369,6 +1374,44 @@ mod tests {
             for protected in ["task-one", "context-two", "run-three", "State: working"] {
                 assert!(!text.contains(protected));
             }
+        }
+    }
+
+    // spec: TUIG-RUNTIME-R001.5
+    #[test]
+    fn input_required_displays_pending_approval_without_asserting_an_effect() {
+        let task = serde_json::json!({
+            "kind": "task", "id": "task-one", "contextId": "context-two",
+            "status": {"state": "input-required"},
+            "metadata": {"arbora": {"runId": "run-three", "approval": {
+                "status": "pending", "pendingCallDigest": "c".repeat(64)}}}
+        });
+        let snapshot = TaskSnapshot {
+            terminal_event: Default::default(),
+            output: Default::default(),
+            usage: Default::default(),
+            correlation: TaskCorrelation::from_task(&task).unwrap(),
+            state: TaskState::InputRequired,
+        };
+        let status = snapshot_status(&snapshot);
+        assert!(status.contains("State: input-required"));
+        assert!(status.contains("Approval: pending; not granted locally."));
+        for effect in [
+            "Approval: granted",
+            "approved",
+            "confirmed",
+            "executed",
+            "effect applied",
+        ] {
+            assert!(!status.contains(effect));
+        }
+        let working = task_read("task-one", "context-two", Some("run-three"));
+        if let ReadStatus::Task(snapshot) = working {
+            let status = snapshot_status(&snapshot);
+            assert!(status.contains("State: working"));
+            assert!(!status.contains("Approval: pending"));
+        } else {
+            panic!("task fixture required");
         }
     }
 
