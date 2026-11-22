@@ -5,6 +5,7 @@ use ratatui::{
     widgets::{Block, Paragraph, Wrap},
 };
 use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Capability {
@@ -297,4 +298,106 @@ fn append_lines(output: &mut String, prefix: char, text: &str) {
     if !text.is_empty() && !text.ends_with('\n') {
         output.push_str("\\ No newline at end of file\n");
     }
+}
+
+/// Terminal-side view of an Arbora-admitted coding session.
+/// It holds only what Arbora granted: no policy of its own.
+pub struct CodingSessionView {
+    session_id: String,
+    workspace_root: String,
+    capabilities: BTreeSet<Capability>,
+    pending: Option<ApprovalRequest>,
+    connected: bool,
+}
+
+impl CodingSessionView {
+    pub fn new(
+        session_id: String,
+        workspace_root: String,
+        capabilities: BTreeSet<Capability>,
+    ) -> Self {
+        Self {
+            session_id,
+            workspace_root,
+            capabilities,
+            pending: None,
+            connected: false,
+        }
+    }
+
+    /// Called after the adapter reauthorizes the same session on reconnect.
+    pub fn set_connected(&mut self, connected: bool) {
+        self.connected = connected;
+    }
+
+    pub fn session_id(&self) -> &str {
+        &self.session_id
+    }
+
+    pub fn workspace_root(&self) -> &str {
+        &self.workspace_root
+    }
+
+    /// Closed set: only a method Capability::parse recognizes can be granted.
+    pub fn allows(&self, method: &str) -> bool {
+        Capability::parse(method).is_ok_and(|capability| self.capabilities.contains(&capability))
+    }
+
+    /// Receives an admission and permission decision from Arbora; it
+    /// grants nothing by itself.
+    pub fn receive(&mut self, request: ApprovalRequest) -> Result<(), ApprovalError> {
+        if !self.connected {
+            return Err(ApprovalError::GatewayUnavailable);
+        }
+        if request.session_id != self.session_id || request.workspace_root != self.workspace_root {
+            return Err(ApprovalError::WrongSession);
+        }
+        if request.request_id.is_empty() || request.content.target().is_empty() {
+            return Err(ApprovalError::InvalidMetadata);
+        }
+        if !self.capabilities.contains(&request.content.capability()) {
+            return Err(ApprovalError::CapabilityNotGranted);
+        }
+        if let Some(pending) = &self.pending {
+            if pending == &request {
+                return Ok(());
+            }
+            return Err(if pending.request_id == request.request_id {
+                ApprovalError::RequestChanged
+            } else {
+                ApprovalError::PendingRequestExists
+            });
+        }
+        self.pending = Some(request);
+        Ok(())
+    }
+
+    pub fn pending(&self) -> Option<&ApprovalRequest> {
+        self.pending.as_ref()
+    }
+}
+
+/// Resolve a workspace target inside the root, following symlinks.
+/// Anything that leaves the root is refused before a host capability
+/// effect. There is no trust-mode bypass.
+// spec: TUIG-RUNTIME-R011.3
+pub fn contained_path(root: &str, target: &str) -> Result<PathBuf, ApprovalError> {
+    if target.is_empty() || target.chars().any(char::is_control) {
+        return Err(ApprovalError::InvalidMetadata);
+    }
+    let canonical_root = Path::new(root)
+        .canonicalize()
+        .map_err(|_| ApprovalError::InvalidMetadata)?;
+    let candidate = if Path::new(target).is_absolute() {
+        PathBuf::from(target)
+    } else {
+        canonical_root.join(target)
+    };
+    let canonical = candidate
+        .canonicalize()
+        .map_err(|_| ApprovalError::CapabilityNotGranted)?;
+    if canonical == canonical_root || !canonical.starts_with(&canonical_root) {
+        return Err(ApprovalError::CapabilityNotGranted);
+    }
+    Ok(canonical)
 }
