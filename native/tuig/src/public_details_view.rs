@@ -338,6 +338,7 @@ mod tests {
         viewport.measure(100, 5);
         let mut logs = HostLogView::default();
         let mut inspector = InspectorView::default();
+        let mut history = crate::task_history_view::TaskHistoryView::default();
         let wheel = MouseEvent {
             kind: MouseEventKind::ScrollDown,
             column: 1,
@@ -350,7 +351,8 @@ mod tests {
             &mut logs,
             &mut inspector,
             &mut viewport,
-            &mut details
+            &mut details,
+            &mut history
         ));
         assert_eq!(viewport.offset(), 1);
         assert!(!route_mouse(
@@ -359,7 +361,8 @@ mod tests {
             &mut logs,
             &mut inspector,
             &mut viewport,
-            &mut details
+            &mut details,
+            &mut history
         ));
         assert_eq!(viewport.offset(), 1);
         let client = Arc::new(ArboraClient::new("http://127.0.0.1:1", None).unwrap());
@@ -376,7 +379,8 @@ mod tests {
             &mut logs,
             &mut inspector,
             &mut viewport,
-            &mut details
+            &mut details,
+            &mut history
         ));
         terminal
             .draw(|frame| inspector.draw(frame, Style::reset(), Style::reset(), now))
@@ -395,7 +399,8 @@ mod tests {
             &mut logs,
             &mut inspector,
             &mut viewport,
-            &mut details
+            &mut details,
+            &mut history
         ));
         terminal
             .draw(|frame| logs.draw(frame, Style::reset(), Style::reset()))
@@ -413,7 +418,8 @@ mod tests {
             &mut logs,
             &mut inspector,
             &mut viewport,
-            &mut details
+            &mut details,
+            &mut history
         ));
         for modifiers in [
             KeyModifiers::CONTROL,
@@ -426,7 +432,8 @@ mod tests {
                 &mut logs,
                 &mut inspector,
                 &mut viewport,
-                &mut details
+                &mut details,
+                &mut history
             ));
         }
         terminal
@@ -441,7 +448,8 @@ mod tests {
             &mut logs,
             &mut inspector,
             &mut viewport,
-            &mut details
+            &mut details,
+            &mut history
         ));
         assert_eq!(viewport.offset(), 2);
         assert_eq!(details.expanded, folds);

@@ -28,11 +28,13 @@ use host_log_view::HostLogView;
 mod presentation;
 mod public_details_view;
 mod spatial_graph;
+mod task_history_view;
 use inspector_view::InspectorView;
 #[cfg(test)]
 use presentation::presentation_style;
 use presentation::{ThemeSelection, Viewport};
 use public_details_view::PublicDetailsView;
+use task_history_view::TaskHistoryView;
 
 #[cfg(test)]
 fn draw(frame: &mut Frame, status: &str, style: Style) {
@@ -155,6 +157,7 @@ fn route_mouse(
     inspector: &mut InspectorView,
     viewport: &mut Viewport,
     details: &mut PublicDetailsView,
+    history: &mut TaskHistoryView,
 ) -> bool {
     if confirming {
         return false;
@@ -164,6 +167,9 @@ fn route_mouse(
     }
     if inspector.is_open() {
         return inspector.mouse(event);
+    }
+    if history.is_open() {
+        return history.mouse(event);
     }
     viewport.mouse(event) || details.mouse(event)
 }
@@ -546,6 +552,7 @@ async fn run(
     let mut submission_unknown = false;
     let mut viewport = Viewport::default();
     let mut inspector = InspectorView::default();
+    let mut history = TaskHistoryView::default();
     let mut logs = HostLogView::default();
     let mut details = PublicDetailsView::default();
     let mut redraw = tokio::time::interval(std::time::Duration::from_millis(250));
@@ -565,6 +572,8 @@ async fn run(
                     logs.draw(frame, style, border_style);
                 } else if inspector.is_open() {
                     inspector.draw(frame, style, border_style, std::time::Instant::now());
+                } else if history.is_open() {
+                    history.draw(frame, style, border_style);
                 } else {
                     draw_task_viewport(frame, &status, style, border_style, &mut viewport, observe, &mut details);
                 }
@@ -610,9 +619,11 @@ async fn run(
                     cancellation.read_started();
                 }
                 _ = inspector.complete(), if inspector.pending() => {}
+                _ = history.complete(), if history.pending() => {}
                 _ = logs.complete(), if logs.pending() => {}
                 _ = details.complete(), if details.pending() => {}
-                _ = redraw.tick(), if inspector.is_open() || logs.is_open() || details.active() => {
+                _ = redraw.tick(),
+                    if inspector.is_open() || history.is_open() || logs.is_open() || details.active() => {
                     logs.tick();
                     details.tick(client.clone(), std::time::Instant::now());
                 }
@@ -625,7 +636,7 @@ async fn run(
                     if let Event::Mouse(mouse) = event {
                         if composer.open { continue; }
                         route_mouse(mouse, cancellation == Cancellation::Confirming,
-                            &mut logs, &mut inspector, &mut viewport, &mut details);
+                            &mut logs, &mut inspector, &mut viewport, &mut details, &mut history);
                     }
                     if let Event::Key(key) = event {
                         if themes.key(key) { continue; }
@@ -679,6 +690,11 @@ async fn run(
                                     status = status_text;
                                     continue;
                                 }
+                                if text.trim() == "/history" {
+                                    composer.open = false;
+                                    history.open(client.clone());
+                                    continue;
+                                }
                                 let submission = TaskSubmission::new(&text)?;
                                 request.abort();
                                 let client = client.clone();
@@ -693,7 +709,7 @@ async fn run(
                             }
                             continue;
                         }
-                        if can_compose && key.code == KeyCode::Char('p') && !logs.is_open() && !inspector.is_open() {
+                        if can_compose && key.code == KeyCode::Char('p') && !logs.is_open() && !inspector.is_open() && !history.is_open() {
                             composer.open = true;
                             continue;
                         }
@@ -708,6 +724,7 @@ async fn run(
                                 continue;
                             }
                             if inspector.key(key.code, client.clone()) { continue; }
+                            if history.key(key.code, client.clone()) { continue; }
                             if key.code == KeyCode::Char('i') && !pending {
                                 inspector.open(client.clone());
                                 continue;
@@ -771,6 +788,7 @@ async fn run(
     }.await;
     request.abort();
     inspector.close();
+    history.close();
     logs.close();
     details.abort();
     let _ = crossterm::execute!(
