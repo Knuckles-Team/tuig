@@ -7,6 +7,7 @@ pub mod app {
     pub use crate::host_logs::{HostLaunchReceipt, HostLogReader, run_host_terminal};
 }
 pub mod operation_command;
+pub mod plan_confirm;
 pub mod public_run_events;
 pub mod recovery;
 pub mod run_inspector;
@@ -82,6 +83,8 @@ pub struct TaskSnapshot {
     pub terminal_event: terminal_event::TerminalEvent,
     pub output: task_output::TaskOutput,
     pub usage: turn_usage::TurnUsage,
+    /// The plan Arbora issued for this task, when the task carries one.
+    pub plan: Option<plan_confirm::PlanBinding>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -351,6 +354,7 @@ impl ArboraClient {
             terminal_event: terminal_event::TerminalEvent::default(),
             output: task_output::TaskOutput::default(),
             usage: turn_usage::TurnUsage::default(),
+            plan: None,
         })
     }
 
@@ -442,5 +446,6 @@ fn parse_returned_task(request_id: &str, bytes: &[u8]) -> Result<TaskSnapshot, &
         correlation,
         state,
         terminal_event,
+        plan: plan_confirm::PlanBinding::from_task(task).ok(),
     })
 }
