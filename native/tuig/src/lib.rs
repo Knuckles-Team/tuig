@@ -12,6 +12,7 @@ pub mod public_run_events;
 pub mod recovery;
 pub mod run_inspector;
 pub mod run_inspector_client;
+pub mod task_history;
 pub mod task_output;
 pub mod task_stream;
 pub mod terminal_event;
