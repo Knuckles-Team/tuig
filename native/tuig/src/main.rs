@@ -334,6 +334,10 @@ fn snapshot_status(snapshot: &TaskSnapshot) -> String {
     )
 }
 
+// The Task variant deliberately carries the whole snapshot: the observation
+// loop hands it to the compositor every 500 ms, and boxing it would add a
+// heap allocation to that hot read path for no observable gain.
+#[allow(clippy::large_enum_variant)]
 enum ReadStatus {
     Discovery(String),
     Task(TaskSnapshot),
@@ -425,6 +429,8 @@ const CANCELLATION_UNKNOWN: &str =
     "Cancellation outcome unknown. Press r to read task state before trying again.";
 
 const OPERATION_REFUSED: &str = "Operation refused: not advertised in the Arbora registry, the registry read failed, or the response envelope was refused.";
+const PLAN_REFUSED: &str = "Plan confirmation refused: the plan is missing, expired or tampered, or Arbora refused the confirmation. No effect was applied.";
+const PLAN_UNAVAILABLE: &str = "No issued plan to confirm; no effect was requested.";
 
 fn request_completed(
     result: Result<Result<ReadStatus, &'static str>, tokio::task::JoinError>,
@@ -534,6 +540,7 @@ async fn run(
     observation_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut status = loading.to_owned();
     let mut binding = None;
+    let mut latest_task: Option<tuig_native::TaskSnapshot> = None;
     let mut cancellation = Cancellation::default();
     let mut remote_cancel = false;
     let mut submission_unknown = false;
@@ -569,6 +576,13 @@ async fn run(
                         Ok(Ok(ReadStatus::Task(snapshot))) if observation_continues(snapshot, binding.as_ref()));
                     let accepted = matches!(&result, Ok(Ok(ReadStatus::Task(snapshot)))
                         if binding.as_ref().is_none_or(|bound: &TaskCorrelation| bound.validate_binding(&snapshot.correlation).is_ok()));
+                    if let Ok(Ok(ReadStatus::Task(snapshot))) = &result
+                        && binding
+                            .as_ref()
+                            .is_none_or(|bound: &TaskCorrelation| bound.validate_binding(&snapshot.correlation).is_ok())
+                    {
+                        latest_task = Some(snapshot.clone());
+                    }
                     if submitting {
                         status = submission_completed(result, &mut binding, &mut cancellation);
                         task_id = binding.as_ref().map(|bound| bound.task_id().to_owned());
@@ -631,6 +645,34 @@ async fn run(
                                             .await
                                             .map(|value| ReadStatus::Operation(format!("Operation {operation}:\n{value}")))
                                             .map_err(|_| OPERATION_REFUSED)
+                                    });
+                                    composer.open = false;
+                                    pending = true;
+                                    status = status_text;
+                                    continue;
+                                }
+                                if text.trim() == "/confirm" {
+                                    request.abort();
+                                    let issued = latest_task.as_ref().and_then(|task| task.plan.clone());
+                                    if issued.is_none() || binding.is_none() {
+                                        status = PLAN_UNAVAILABLE.to_owned();
+                                        composer.open = false;
+                                        continue;
+                                    }
+                                    let client = client.clone();
+                                    let plan = issued.unwrap();
+                                    let binding = binding.clone().unwrap();
+                                    let status_text = format!("Confirming plan {}...", plan.reference());
+                                    request = tokio::spawn(async move {
+                                        client
+                                            .confirm_plan(&binding, &plan)
+                                            .await
+                                            .map(|snapshot| ReadStatus::Operation(format!(
+                                                "Plan {} confirmed by Arbora\n\n{}",
+                                                plan.reference(),
+                                                snapshot_status(&snapshot),
+                                            )))
+                                            .map_err(|_| PLAN_REFUSED)
                                     });
                                     composer.open = false;
                                     pending = true;
@@ -1049,6 +1091,7 @@ mod tests {
             usage: Default::default(),
             correlation: TaskCorrelation::from_task(&task).unwrap(),
             state: TaskState::Working,
+            plan: None,
         })
     }
 
@@ -1341,6 +1384,7 @@ mod tests {
                 usage: Default::default(),
                 correlation: TaskCorrelation::from_task(&task).unwrap(),
                 state: TaskState::Working,
+                plan: None,
             };
             terminal
                 .draw(|frame| draw(frame, &snapshot_status(&snapshot), Style::default()))
@@ -1392,6 +1436,7 @@ mod tests {
             usage: Default::default(),
             correlation: TaskCorrelation::from_task(&task).unwrap(),
             state: TaskState::InputRequired,
+            plan: None,
         };
         let status = snapshot_status(&snapshot);
         assert!(status.contains("State: input-required"));
@@ -1825,6 +1870,7 @@ mod terminal_point_view_tests {
                 .unwrap(),
             correlation,
             state: TaskState::Completed,
+            plan: None,
         };
         let mut binding = None;
         let status = completed_status(Ok(Ok(ReadStatus::Task(snapshot))), &mut binding);
