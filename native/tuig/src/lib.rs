@@ -127,24 +127,51 @@ impl ArboraClient {
         if auth_mode == AuthMode::None && token.is_some() {
             return Err("Anonymous mode cannot use a caller credential");
         }
+        let mut url = Self::validate_endpoint(endpoint)?;
+        Self::auth_policy(&url, token, auth_mode)?;
+        let headers = Self::credential_headers(token)?;
+        url.set_path("/.well-known/agent-card.json");
+        let http = Self::transport(headers, auth_mode)?;
+        Ok(Self {
+            http,
+            card_url: url,
+            authenticated: token.is_some(),
+            auth_mode,
+            submission_timeout: Duration::from_secs(300),
+            committed_event_reads: false,
+        })
+    }
+
+    fn validate_endpoint(endpoint: &str) -> Result<Url, &'static str> {
         if endpoint
             .chars()
             .any(|c| c.is_whitespace() || c.is_control() || c == '\\')
         {
             return Err("Invalid Arbora endpoint");
         }
-        let mut url = Url::parse(endpoint).map_err(|_| "Invalid Arbora endpoint")?;
-        if !matches!(url.scheme(), "http" | "https")
-            || url.host_str().is_none()
-            || !url.username().is_empty()
-            || url.password().is_some()
-            || url.query().is_some()
-            || url.fragment().is_some()
-            || url.path() != "/"
-            || url.port() == Some(0)
-        {
+        let url = Url::parse(endpoint).map_err(|_| "Invalid Arbora endpoint")?;
+        if !Self::endpoint_shape_ok(&url) {
             return Err("Invalid Arbora endpoint");
         }
+        Ok(url)
+    }
+
+    fn endpoint_shape_ok(url: &Url) -> bool {
+        matches!(url.scheme(), "http" | "https")
+            && url.host_str().is_some()
+            && url.username().is_empty()
+            && url.password().is_none()
+            && url.query().is_none()
+            && url.fragment().is_none()
+            && url.path() == "/"
+            && url.port() != Some(0)
+    }
+
+    fn auth_policy(
+        url: &Url,
+        token: Option<&str>,
+        auth_mode: AuthMode,
+    ) -> Result<(), &'static str> {
         let local = matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
         if auth_mode == AuthMode::None && !local {
             return Err("Anonymous Arbora requires a loopback endpoint");
@@ -155,6 +182,10 @@ impl ArboraClient {
         if !local && token.is_none() {
             return Err("Remote Arbora requires a caller credential");
         }
+        Ok(())
+    }
+
+    fn credential_headers(token: Option<&str>) -> Result<header::HeaderMap, &'static str> {
         let mut headers = header::HeaderMap::new();
         if let Some(token) = token {
             if token.is_empty() || !token.bytes().all(|c| (33..=126).contains(&c)) {
@@ -165,28 +196,23 @@ impl ArboraClient {
             value.set_sensitive(true);
             headers.insert(header::AUTHORIZATION, value);
         }
-        url.set_path("/.well-known/agent-card.json");
+        Ok(headers)
+    }
+
+    fn transport(headers: header::HeaderMap, auth_mode: AuthMode) -> Result<Client, &'static str> {
         let mut builder = Client::builder();
         if auth_mode == AuthMode::None {
             builder = builder
                 .no_proxy()
                 .resolve("localhost", std::net::SocketAddr::from(([127, 0, 0, 1], 0)));
         }
-        let http = builder
+        builder
             .default_headers(headers)
             .redirect(reqwest::redirect::Policy::none())
             .retry(reqwest::retry::never())
             .timeout(Duration::from_secs(10))
             .build()
-            .map_err(|_| "Cannot initialize Arbora transport")?;
-        Ok(Self {
-            http,
-            card_url: url,
-            authenticated: token.is_some(),
-            auth_mode,
-            submission_timeout: Duration::from_secs(300),
-            committed_event_reads: false,
-        })
+            .map_err(|_| "Cannot initialize Arbora transport")
     }
 
     pub fn with_submission_timeout(mut self, timeout: Duration) -> Result<Self, &'static str> {
@@ -207,7 +233,9 @@ impl ArboraClient {
         self.committed_event_reads = enabled;
         self
     }
+}
 
+impl ArboraClient {
     pub async fn submit_task(
         &self,
         submission: &TaskSubmission,
@@ -218,46 +246,8 @@ impl ArboraClient {
         if submission.context_id.is_some() {
             self.require_continuation().await?;
         }
-        let mut message = serde_json::json!({
-            "kind": "message", "role": "user",
-            "messageId": submission.message_id(),
-            "parts": [{"kind": "text", "text": submission.prompt}],
-        });
-        if let Some(context_id) = &submission.context_id {
-            message["contextId"] = serde_json::json!(context_id);
-        }
-        let mut url = self.card_url.clone();
-        url.set_path("/a2a");
-        let mut request = self
-            .http
-            .post(url)
-            .timeout(self.submission_timeout)
-            .header("Idempotency-Key", submission.message_id());
-        if submission.context_id.is_some() {
-            request = request.header("X-A2A-Extensions", CONTINUATION_EXTENSION);
-        }
-        let response = request
-            .json(&serde_json::json!({
-                "jsonrpc": "2.0",
-                "id": submission.message_id(),
-                "method": "message/send",
-                "params": {"configuration": {"blocking": false}, "message": message},
-            }))
-            .send()
-            .await
-            .map_err(|_| SUBMISSION_UNKNOWN)?;
-        if !response.status().is_success() {
-            return Err(SUBMISSION_UNKNOWN);
-        }
-        if submission.context_id.is_some() {
-            let mut activations = response.headers().get_all("X-A2A-Extensions").iter();
-            if activations.next().and_then(|value| value.to_str().ok())
-                != Some(CONTINUATION_EXTENSION)
-                || activations.next().is_some()
-            {
-                return Err(SUBMISSION_UNKNOWN);
-            }
-        }
+        let response = self.dispatch_submission(submission).await?;
+        Self::activation_ok(&response, submission)?;
         let bytes = read_task_response(response)
             .await
             .map_err(|_| SUBMISSION_UNKNOWN)?;
@@ -271,6 +261,64 @@ impl ArboraClient {
             return Err(SUBMISSION_UNKNOWN);
         }
         Ok(task)
+    }
+
+    fn submission_message(submission: &TaskSubmission) -> serde_json::Value {
+        let mut message = serde_json::json!({
+            "kind": "message", "role": "user",
+            "messageId": submission.message_id(),
+            "parts": [{"kind": "text", "text": submission.prompt}],
+        });
+        if let Some(context_id) = &submission.context_id {
+            message["contextId"] = serde_json::json!(context_id);
+        }
+        message
+    }
+
+    async fn dispatch_submission(
+        &self,
+        submission: &TaskSubmission,
+    ) -> Result<reqwest::Response, &'static str> {
+        let message = Self::submission_message(submission);
+        let mut url = self.card_url.clone();
+        url.set_path("/a2a");
+        let mut request = self
+            .http
+            .post(url)
+            .timeout(self.submission_timeout)
+            .header("Idempotency-Key", submission.message_id());
+        if submission.context_id.is_some() {
+            request = request.header("X-A2A-Extensions", CONTINUATION_EXTENSION);
+        }
+        request
+            .json(&serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": submission.message_id(),
+                "method": "message/send",
+                "params": {"configuration": {"blocking": false}, "message": message},
+            }))
+            .send()
+            .await
+            .map_err(|_| SUBMISSION_UNKNOWN)
+    }
+
+    fn activation_ok(
+        response: &reqwest::Response,
+        submission: &TaskSubmission,
+    ) -> Result<(), &'static str> {
+        if !response.status().is_success() {
+            return Err(SUBMISSION_UNKNOWN);
+        }
+        if submission.context_id.is_some() {
+            let mut activations = response.headers().get_all("X-A2A-Extensions").iter();
+            if activations.next().and_then(|value| value.to_str().ok())
+                != Some(CONTINUATION_EXTENSION)
+                || activations.next().is_some()
+            {
+                return Err(SUBMISSION_UNKNOWN);
+            }
+        }
+        Ok(())
     }
 
     async fn require_continuation(&self) -> Result<(), &'static str> {
@@ -418,18 +466,23 @@ fn parse_task_snapshot(
     Ok(snapshot)
 }
 
-fn parse_returned_task(request_id: &str, bytes: &[u8]) -> Result<TaskSnapshot, &'static str> {
-    let envelope: serde_json::Value =
-        serde_json::from_slice(bytes).map_err(|_| "Invalid Arbora task response")?;
+fn envelope_result<'a>(
+    envelope: &'a serde_json::Value,
+    request_id: &str,
+) -> Result<&'a serde_json::Value, &'static str> {
     if envelope.get("jsonrpc").and_then(|v| v.as_str()) != Some("2.0")
         || envelope.get("id").and_then(|v| v.as_str()) != Some(request_id)
         || envelope.get("error").is_some()
     {
         return Err("Invalid or refused Arbora task response");
     }
-    let task = envelope
-        .get("result")
-        .ok_or("Missing Arbora task snapshot")?;
+    envelope.get("result").ok_or("Missing Arbora task snapshot")
+}
+
+fn parse_returned_task(request_id: &str, bytes: &[u8]) -> Result<TaskSnapshot, &'static str> {
+    let envelope: serde_json::Value =
+        serde_json::from_slice(bytes).map_err(|_| "Invalid Arbora task response")?;
+    let task = envelope_result(&envelope, request_id)?;
     let correlation = TaskCorrelation::from_task(task)?;
     let TaskEvent::Status { state, .. } = correlation.validate(task)? else {
         return Err("Invalid Arbora task snapshot");

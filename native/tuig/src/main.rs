@@ -1,8 +1,7 @@
 use crossterm::event::{
-    DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture, Event,
-    EventStream, KeyCode, KeyModifiers, MouseEvent,
+    DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+    EventStream, MouseEvent,
 };
-use futures_util::StreamExt;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -20,19 +19,20 @@ mod cli;
 mod composer;
 mod headless;
 mod host_log_view;
+use host_log_view::HostLogView;
 mod inspector_view;
+use inspector_view::InspectorView;
 mod local_runtime;
 #[cfg(unix)]
 mod local_session;
-use host_log_view::HostLogView;
 mod presentation;
 mod public_details_view;
+mod session;
 mod spatial_graph;
 mod task_history_view;
-use inspector_view::InspectorView;
+use presentation::Viewport;
 #[cfg(test)]
 use presentation::presentation_style;
-use presentation::{ThemeSelection, Viewport};
 use public_details_view::PublicDetailsView;
 use task_history_view::TaskHistoryView;
 
@@ -78,6 +78,36 @@ fn draw_task_viewport(
     read_only: bool,
     details: &mut PublicDetailsView,
 ) {
+    let (lines, headers) = task_viewport_lines(status, style, read_only, details);
+    let block = Block::bordered()
+        .border_style(border_style)
+        .title_style(border_style)
+        .title("Arbora")
+        .title_bottom("Up/Down PgUp/PgDn Home/End");
+    let inner = block.inner(frame.area());
+    let paragraph = Paragraph::new(Text::from(lines.clone()))
+        .style(style)
+        .wrap(Wrap { trim: false });
+    viewport.measure(paragraph.line_count(inner.width), inner.height);
+    let positions = header_positions(&lines, &headers, inner.width);
+    if let Some(index) = details.take_focus_request()
+        && let Some((start, height)) = positions[index]
+    {
+        viewport.reveal(start, height);
+    }
+    details.set_header_regions(header_regions(&positions, viewport, inner));
+    frame.render_widget(
+        paragraph.scroll((viewport.offset(), 0)).block(block),
+        frame.area(),
+    );
+}
+
+fn task_viewport_lines(
+    status: &str,
+    style: Style,
+    read_only: bool,
+    details: &mut PublicDetailsView,
+) -> (Vec<Line<'static>>, [Option<usize>; 2]) {
     let mut lines: Vec<Line<'static>> = status
         .lines()
         .map(|line| Line::from(line.to_owned()))
@@ -96,40 +126,42 @@ fn draw_task_viewport(
     lines.push(Line::from(
         "Task streaming and approvals remain unavailable.",
     ));
-    lines.push(Line::from(format!("F6: theme | l: host logs | i: run inspector | r: refresh read | {cancel_help} | c: cancel local request | q / Ctrl+C: quit")));
-    let block = Block::bordered()
-        .border_style(border_style)
-        .title_style(border_style)
-        .title("Arbora")
-        .title_bottom("Up/Down PgUp/PgDn Home/End");
-    let inner = block.inner(frame.area());
-    let paragraph = Paragraph::new(Text::from(lines.clone()))
-        .style(style)
-        .wrap(Wrap { trim: false });
-    viewport.measure(paragraph.line_count(inner.width), inner.height);
-    let positions = headers.map(|header| {
+    lines.push(Line::from(format!(
+        "F6: theme | l: host logs | i: run inspector | r: refresh read | {cancel_help} | c: cancel local request | q / Ctrl+C: quit"
+    )));
+    (lines, headers)
+}
+
+fn header_positions(
+    lines: &[Line<'static>],
+    headers: &[Option<usize>; 2],
+    width: u16,
+) -> [Option<(usize, usize)>; 2] {
+    headers.map(|header| {
         header.map(|header| {
             let start = if header == 0 {
                 0
             } else {
                 Paragraph::new(Text::from(lines[..header].to_vec()))
                     .wrap(Wrap { trim: false })
-                    .line_count(inner.width)
+                    .line_count(width)
             };
             let height = Paragraph::new(Text::from(lines[header..=header].to_vec()))
                 .wrap(Wrap { trim: false })
-                .line_count(inner.width);
+                .line_count(width);
             (start, height)
         })
-    });
-    if let Some(index) = details.take_focus_request()
-        && let Some((start, height)) = positions[index]
-    {
-        viewport.reveal(start, height);
-    }
+    })
+}
+
+fn header_regions(
+    positions: &[Option<(usize, usize)>; 2],
+    viewport: &Viewport,
+    inner: Rect,
+) -> [Option<Rect>; 2] {
     let mut regions = [None; 2];
-    for (index, position) in positions.into_iter().enumerate() {
-        if let Some((start, height)) = position {
+    for (index, position) in positions.iter().enumerate() {
+        if let Some((start, height)) = *position {
             let offset = usize::from(viewport.offset());
             let visible_start = start.max(offset);
             let visible_end = (start + height).min(offset + usize::from(inner.height));
@@ -143,11 +175,7 @@ fn draw_task_viewport(
             }
         }
     }
-    details.set_header_regions(regions);
-    frame.render_widget(
-        paragraph.scroll((viewport.offset(), 0)).block(block),
-        frame.area(),
-    );
+    regions
 }
 
 fn route_mouse(
@@ -364,23 +392,12 @@ async fn read_status(
     }
 }
 
-fn completed_status(
-    result: Result<Result<ReadStatus, &'static str>, tokio::task::JoinError>,
-    binding: &mut Option<TaskCorrelation>,
-) -> String {
+fn completed_status(result: session::ReadResult, binding: &mut Option<TaskCorrelation>) -> String {
     match result {
         Ok(Ok(ReadStatus::Discovery(name))) => format!("Agent Card received: {name}"),
         Ok(Ok(ReadStatus::Task(mut snapshot))) => {
-            if let Some(initial) = binding {
-                if let Err(error) = initial.validate_binding(&snapshot.correlation) {
-                    return error.to_owned();
-                }
-                if let Err(error) = snapshot.terminal_event.validate_binding(initial) {
-                    return error.to_owned();
-                }
-                snapshot.correlation = initial.clone();
-            } else {
-                *binding = Some(snapshot.correlation.clone());
+            if let Err(error) = settle_task_binding(&mut snapshot, binding) {
+                return error.to_owned();
             }
             snapshot_status(&snapshot)
         }
@@ -391,6 +408,22 @@ fn completed_status(
         }
         Err(_) => "Read request interrupted".to_owned(),
     }
+}
+
+/// Adopt or validate the task binding for a completed read, then settle the
+/// snapshot's correlation with it.
+fn settle_task_binding(
+    snapshot: &mut TaskSnapshot,
+    binding: &mut Option<TaskCorrelation>,
+) -> Result<(), &'static str> {
+    if let Some(initial) = binding {
+        initial.validate_binding(&snapshot.correlation)?;
+        snapshot.terminal_event.validate_binding(initial)?;
+        snapshot.correlation = initial.clone();
+    } else {
+        *binding = Some(snapshot.correlation.clone());
+    }
+    Ok(())
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -439,7 +472,7 @@ const PLAN_REFUSED: &str = "Plan confirmation refused: the plan is missing, expi
 const PLAN_UNAVAILABLE: &str = "No issued plan to confirm; no effect was requested.";
 
 fn request_completed(
-    result: Result<Result<ReadStatus, &'static str>, tokio::task::JoinError>,
+    result: session::ReadResult,
     binding: &mut Option<TaskCorrelation>,
     cancellation: &mut Cancellation,
     remote_cancel: bool,
@@ -475,7 +508,7 @@ fn request_completed(
 }
 
 fn submission_completed(
-    result: Result<Result<ReadStatus, &'static str>, tokio::task::JoinError>,
+    result: session::ReadResult,
     binding: &mut Option<TaskCorrelation>,
     cancellation: &mut Cancellation,
 ) -> String {
@@ -503,306 +536,33 @@ fn enable_terminal_input(writer: &mut impl std::io::Write) -> std::io::Result<()
 
 async fn run(
     client: Arc<ArboraClient>,
-    mut task_id: Option<String>,
+    task_id: Option<String>,
     submission: Option<TaskSubmission>,
     observe: bool,
 ) -> Result<(), &'static str> {
-    let theme = env::var("AGENT_THEME").unwrap_or_else(|_| "tokyo-night".to_owned());
-    let no_color = env::var("NO_COLOR").unwrap_or_default();
-    let mut themes = ThemeSelection::new(&theme, &no_color);
-    let mut submitting = submission.is_some();
-    let mut automatic_observation = observe || submitting;
-    let mut can_compose = task_id.is_none() && submission.is_none() && !observe;
-    let mut composer = composer::Composer::default();
-    composer.open = can_compose;
-    let mut observation_deadline = submitting
-        .then(|| tokio::time::Instant::now() + std::time::Duration::from_secs(4 * 60 * 60));
-    let loading = if submitting {
-        "Submitting Arbora task..."
-    } else if task_id.is_some() {
-        "Reading Arbora task..."
-    } else {
-        "Discovering Arbora..."
-    };
     let mut terminal = ratatui::init();
     if enable_terminal_input(&mut std::io::stdout()).is_err() {
         ratatui::restore();
         return Err("Cannot enable terminal input");
     }
+    let (mut session, mut request) =
+        session::Session::new(client.clone(), task_id, submission, observe);
     let mut events = EventStream::new();
-    let mut request = tokio::spawn({
-        let client = client.clone();
-        let task_id = task_id.clone();
-        async move {
-            match submission {
-                Some(submission) => client.submit_task(&submission).await.map(ReadStatus::Task),
-                None => read_status(&client, task_id.as_deref(), None).await,
-            }
-        }
-    });
-    let mut pending = true;
-    let mut observation_active = observe;
     let mut observation_tick = tokio::time::interval(std::time::Duration::from_millis(500));
     observation_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let mut status = loading.to_owned();
-    let mut binding = None;
-    let mut latest_task: Option<tuig_native::TaskSnapshot> = None;
-    let mut cancellation = Cancellation::default();
-    let mut remote_cancel = false;
-    let mut submission_unknown = false;
-    let mut viewport = Viewport::default();
-    let mut inspector = InspectorView::default();
-    let mut history = TaskHistoryView::default();
-    let mut logs = HostLogView::default();
-    let mut details = PublicDetailsView::default();
     let mut redraw = tokio::time::interval(std::time::Duration::from_millis(250));
     redraw.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let result = async {
-        loop {
-            inspector.client_updated(&client);
-            let style = themes.style();
-            let border_style = themes.border_style();
-            let mut confirmation_visible = false;
-            terminal.draw(|frame| {
-                if composer.open {
-                    composer.draw(frame, style, border_style);
-                } else if cancellation == Cancellation::Confirming {
-                    confirmation_visible = draw_confirmation(frame, &status, style, border_style);
-                } else if logs.is_open() {
-                    logs.draw(frame, style, border_style);
-                } else if inspector.is_open() {
-                    inspector.draw(frame, style, border_style, std::time::Instant::now());
-                } else if history.is_open() {
-                    history.draw(frame, style, border_style);
-                } else {
-                    draw_task_viewport(frame, &status, style, border_style, &mut viewport, observe, &mut details);
-                }
-            }).map_err(|_| "Cannot draw terminal")?;
-            tokio::select! {
-                result = &mut request, if pending => {
-                    pending = false;
-                    observation_active = automatic_observation && matches!(&result,
-                        Ok(Ok(ReadStatus::Task(snapshot))) if observation_continues(snapshot, binding.as_ref()));
-                    let accepted = matches!(&result, Ok(Ok(ReadStatus::Task(snapshot)))
-                        if binding.as_ref().is_none_or(|bound: &TaskCorrelation| bound.validate_binding(&snapshot.correlation).is_ok()));
-                    if let Ok(Ok(ReadStatus::Task(snapshot))) = &result
-                        && binding
-                            .as_ref()
-                            .is_none_or(|bound: &TaskCorrelation| bound.validate_binding(&snapshot.correlation).is_ok())
-                    {
-                        latest_task = Some(snapshot.clone());
-                    }
-                    if submitting {
-                        status = submission_completed(result, &mut binding, &mut cancellation);
-                        task_id = binding.as_ref().map(|bound| bound.task_id().to_owned());
-                        submission_unknown = binding.is_none();
-                        submitting = false;
-                    } else {
-                        status = request_completed(result, &mut binding, &mut cancellation, remote_cancel);
-                        if can_compose { status.push_str("\n\np: return to prompt draft"); }
-                    }
-                    inspector.task_updated(if accepted { binding.as_ref() } else { None });
-                    details.task_updated(if accepted { binding.as_ref() } else { None });
-                }
-                _ = observation_tick.tick(), if observation_ready(observation_active, pending, cancellation) => {
-                    if stop_expired_observation(observation_deadline, tokio::time::Instant::now(), &mut observation_active, &mut status) {
-                        continue;
-                    }
-                    let client = client.clone();
-                    let task_id = task_id.clone();
-                    let read_binding = binding.clone();
-                    request = tokio::spawn(async move {
-                        read_status(&client, task_id.as_deref(), read_binding.as_ref()).await
-                    });
-                    pending = true;
-                    remote_cancel = false;
-                    cancellation.read_started();
-                }
-                _ = inspector.complete(), if inspector.pending() => {}
-                _ = history.complete(), if history.pending() => {}
-                _ = logs.complete(), if logs.pending() => {}
-                _ = details.complete(), if details.pending() => {}
-                _ = redraw.tick(),
-                    if inspector.is_open() || history.is_open() || logs.is_open() || details.active() => {
-                    logs.tick();
-                    details.tick(client.clone(), std::time::Instant::now());
-                }
-                event = events.next() => {
-                    let Some(Ok(event)) = event else { return Err("Terminal input unavailable"); };
-                    if let Event::Paste(ref text) = event {
-                        if composer.open { composer.paste(text); }
-                        continue;
-                    }
-                    if let Event::Mouse(mouse) = event {
-                        if composer.open { continue; }
-                        route_mouse(mouse, cancellation == Cancellation::Confirming,
-                            &mut logs, &mut inspector, &mut viewport, &mut details, &mut history);
-                    }
-                    if let Event::Key(key) = event {
-                        if themes.key(key) { continue; }
-                        if !presentation::accepts_key_event(key) { continue; }
-                        if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) { return Ok(()); }
-                        if composer.open {
-                            if let Some(text) = composer.key(key) {
-                                if let Some(command) = tuig_native::operation_command::OperationCommand::parse_command(&text) {
-                                    request.abort();
-                                    let client = client.clone();
-                                    let operation = command.operation().to_owned();
-                                    let payload = command.payload().to_owned();
-                                    let status_text = format!("Invoking {operation}...");
-                                    request = tokio::spawn(async move {
-                                        client
-                                            .invoke_operation(&operation, &payload)
-                                            .await
-                                            .map(|value| ReadStatus::Operation(format!("Operation {operation}:\n{value}")))
-                                            .map_err(|_| OPERATION_REFUSED)
-                                    });
-                                    composer.open = false;
-                                    pending = true;
-                                    status = status_text;
-                                    continue;
-                                }
-                                if text.trim() == "/confirm" {
-                                    request.abort();
-                                    let issued = latest_task.as_ref().and_then(|task| task.plan.clone());
-                                    if issued.is_none() || binding.is_none() {
-                                        status = PLAN_UNAVAILABLE.to_owned();
-                                        composer.open = false;
-                                        continue;
-                                    }
-                                    let client = client.clone();
-                                    let plan = issued.unwrap();
-                                    let binding = binding.clone().unwrap();
-                                    let status_text = format!("Confirming plan {}...", plan.reference());
-                                    request = tokio::spawn(async move {
-                                        client
-                                            .confirm_plan(&binding, &plan)
-                                            .await
-                                            .map(|snapshot| ReadStatus::Operation(format!(
-                                                "Plan {} confirmed by Arbora\n\n{}",
-                                                plan.reference(),
-                                                snapshot_status(&snapshot),
-                                            )))
-                                            .map_err(|_| PLAN_REFUSED)
-                                    });
-                                    composer.open = false;
-                                    pending = true;
-                                    status = status_text;
-                                    continue;
-                                }
-                                if text.trim() == "/history" {
-                                    composer.open = false;
-                                    history.open(client.clone());
-                                    continue;
-                                }
-                                let submission = TaskSubmission::new(&text)?;
-                                request.abort();
-                                let client = client.clone();
-                                request = tokio::spawn(async move { client.submit_task(&submission).await.map(ReadStatus::Task) });
-                                composer.open = false;
-                                can_compose = false;
-                                submitting = true;
-                                pending = true;
-                                automatic_observation = true;
-                                observation_deadline = Some(tokio::time::Instant::now() + std::time::Duration::from_secs(4 * 60 * 60));
-                                status = "Submitting Arbora task...".to_owned();
-                            }
-                            continue;
-                        }
-                        if can_compose && key.code == KeyCode::Char('p') && !logs.is_open() && !inspector.is_open() && !history.is_open() {
-                            composer.open = true;
-                            continue;
-                        }
-                        if cancellation != Cancellation::Confirming && !logs.is_open() && inspector.search_key(key) { continue; }
-                        if key.code == KeyCode::Char('q') || (key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL)) {
-                            return Ok(());
-                        }
-                        if cancellation != Cancellation::Confirming {
-                            if logs.key(key.code) { continue; }
-                            if (key.code == KeyCode::Char('l') || (key.code == KeyCode::Char('v') && key.modifiers.contains(KeyModifiers::CONTROL))) && !inspector.is_open() {
-                                logs.open(client.clone());
-                                continue;
-                            }
-                            if inspector.key(key.code, client.clone()) { continue; }
-                            if history.key(key.code, client.clone()) { continue; }
-                            if key.code == KeyCode::Char('i') && !pending {
-                                inspector.open(client.clone());
-                                continue;
-                            }
-                            if details.key(key) { continue; }
-                            if viewport.handle(key.code) { continue; }
-                        }
-                        match key.code {
-                            KeyCode::Char('c') if pending => {
-                                observation_active = false;
-                                request.abort();
-                                inspector.task_updated(None);
-                                details.task_updated(None);
-                                pending = false;
-                                let result = (&mut request).await;
-                                if submitting {
-                                    status = submission_completed(result, &mut binding, &mut cancellation);
-                                    task_id = binding.as_ref().map(|bound| bound.task_id().to_owned());
-                                    submission_unknown = binding.is_none();
-                                    submitting = false;
-                                } else if remote_cancel {
-                                    cancellation = Cancellation::Unknown;
-                                    status = CANCELLATION_UNKNOWN.to_owned();
-                                } else {
-                                    status = request_completed(result, &mut binding, &mut cancellation, false);
-                                }
-                            }
-                            KeyCode::Char('c') if details.pending() => {
-                                details.cancel_read();
-                            }
-                            KeyCode::Char('r') if !pending && !submission_unknown => {
-                                details.replay();
-                                status = if task_id.is_some() { "Reading Arbora task..." } else { "Discovering Arbora..." }.to_owned();
-                                let client = client.clone();
-                                let task_id = task_id.clone();
-                                let read_binding = binding.clone();
-                                request = tokio::spawn(async move { read_status(&client, task_id.as_deref(), read_binding.as_ref()).await });
-                                pending = true;
-                                remote_cancel = false;
-                                cancellation.read_started();
-                            }
-                            KeyCode::Char('x') if !pending && !observe => cancellation.arm(),
-                            KeyCode::Char('n') | KeyCode::Esc => cancellation.dismiss(),
-                            KeyCode::Char('y') if !observe && !pending && confirm_visible(&mut cancellation, confirmation_visible, crossterm::terminal::size()) => {
-                                if let Some(binding) = binding.clone() {
-                                    let client = client.clone();
-                                    request = tokio::spawn(async move {
-                                        client.cancel_task(&binding).await.map(ReadStatus::Task)
-                                    });
-                                    pending = true;
-                                    remote_cancel = true;
-                                    status = "Canceling remote task...".to_owned();
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-                }
-            }
-        }
-    }.await;
-    request.abort();
-    inspector.close();
-    history.close();
-    logs.close();
-    details.abort();
-    let _ = crossterm::execute!(
-        std::io::stdout(),
-        DisableBracketedPaste,
-        DisableMouseCapture
-    );
-    ratatui::restore();
-    if submitting {
-        status = submission_completed((&mut request).await, &mut binding, &mut cancellation);
-        eprintln!("{status}");
-    } else if submission_unknown {
-        eprintln!("{SUBMISSION_UNKNOWN}");
-    }
+    let result = session
+        .event_loop(
+            &client,
+            &mut terminal,
+            &mut request,
+            &mut events,
+            &mut observation_tick,
+            &mut redraw,
+        )
+        .await;
+    session.finish(&mut request).await;
     result
 }
 
@@ -848,67 +608,109 @@ Local ACP has no client tools, permission grants or durable resume.
 Legacy --override, --bg, --model and --session are unsupported.
 ";
 
+fn caller_credential() -> Result<(Option<String>, AuthMode), &'static str> {
+    let token = match env::var("AGENT_BEARER_TOKEN") {
+        Ok(value) => Some(value),
+        Err(env::VarError::NotPresent) => None,
+        Err(env::VarError::NotUnicode(_)) => return Err("Invalid caller credential"),
+    };
+    let mode = match env::var("AGENT_AUTH_MODE") {
+        Ok(value) => Some(value),
+        Err(env::VarError::NotPresent) => None,
+        Err(env::VarError::NotUnicode(_)) => return Err("AGENT_AUTH_MODE must be valid Unicode"),
+    };
+    Ok((token, AuthMode::parse(mode.as_deref())?))
+}
+
+fn require_credential(
+    requested: bool,
+    authenticated: bool,
+    auth_mode: AuthMode,
+    message: &'static str,
+) -> Result<(), &'static str> {
+    if requested && !authenticated && auth_mode != AuthMode::None {
+        return Err(message);
+    }
+    Ok(())
+}
+
+fn launch_targets(
+    args: &[OsString],
+    authenticated: bool,
+    auth_mode: AuthMode,
+) -> Result<(bool, Option<String>, Option<TaskSubmission>), &'static str> {
+    let task_id = selected_task(env::var("AGENT_TASK_ID"))?;
+    let (context_id, args) = cli::continuation(args, task_id.is_some())?;
+    let observation = selected_observation(&args, task_id.is_some())?;
+    let observe = observation.is_some();
+    require_credential(
+        observe,
+        authenticated,
+        auth_mode,
+        "Observation requires a caller credential",
+    )?;
+    let prompt = if observe {
+        None
+    } else {
+        selected_prompt(&args, task_id.is_some())?
+    };
+    let task_id = observation.or(task_id);
+    require_credential(
+        prompt.is_some(),
+        authenticated,
+        auth_mode,
+        "Submission requires a caller credential",
+    )?;
+    Ok((observe, task_id, submission_from(prompt, context_id)?))
+}
+
+fn submission_from(
+    prompt: Option<String>,
+    context_id: Option<String>,
+) -> Result<Option<TaskSubmission>, &'static str> {
+    prompt
+        .as_deref()
+        .map(|text| match context_id.as_deref() {
+            Some(context) => TaskSubmission::continuing(text, context),
+            None => TaskSubmission::new(text),
+        })
+        .transpose()
+}
+
+fn remote_client(
+    endpoint: &str,
+    token: Option<&str>,
+    auth_mode: AuthMode,
+) -> Result<ArboraClient, &'static str> {
+    let timeout = submission_timeout(env::var("AGENT_SUBMISSION_TIMEOUT_SECONDS"))?;
+    let include_event = committed_event_reads(env::var("AGENT_INCLUDE_COMMITTED_EVENT"))?;
+    Ok(ArboraClient::with_auth_mode(endpoint, token, auth_mode)?
+        .with_submission_timeout(timeout)?
+        .with_committed_event_reads(include_event))
+}
+
+async fn launch(
+    client: ArboraClient,
+    headless: bool,
+    observe: bool,
+    task_id: Option<String>,
+    submission: Option<TaskSubmission>,
+) -> Result<(), &'static str> {
+    if headless {
+        headless::run(&client, task_id.as_deref(), submission.as_ref()).await
+    } else {
+        run(Arc::new(client), task_id, submission, observe).await
+    }
+}
+
 #[tokio::main]
 async fn main() -> ExitCode {
     let args: Vec<_> = env::args_os().skip(1).collect();
-    if matches!(args.as_slice(), [flag] if flag == "--help" || flag == "-h") {
+    if help_requested(&args) {
         print!("{CLI_HELP}");
         return ExitCode::SUCCESS;
     }
-    let endpoint = env::var("AGENT_URL").unwrap_or_else(|_| "http://localhost:8000".to_owned());
-    let result = async {
-        if let Some(local) = local_runtime::options(&args)? {
-            return local_runtime::run(local).await;
-        }
-        let (headless, args) = cli::arguments(&args)?;
-        let token = match env::var("AGENT_BEARER_TOKEN") {
-            Ok(value) => Some(value),
-            Err(env::VarError::NotPresent) => None,
-            Err(env::VarError::NotUnicode(_)) => return Err("Invalid caller credential"),
-        };
-        let mode_value = match env::var("AGENT_AUTH_MODE") {
-            Ok(value) => Some(value),
-            Err(env::VarError::NotPresent) => None,
-            Err(env::VarError::NotUnicode(_)) => {
-                return Err("AGENT_AUTH_MODE must be valid Unicode");
-            }
-        };
-        let auth_mode = AuthMode::parse(mode_value.as_deref())?;
-        let task_id = selected_task(env::var("AGENT_TASK_ID"))?;
-        let (context_id, args) = cli::continuation(&args, task_id.is_some())?;
-        let observation = selected_observation(&args, task_id.is_some())?;
-        let observe = observation.is_some();
-        if observe && token.is_none() && auth_mode != AuthMode::None {
-            return Err("Observation requires a caller credential");
-        }
-        let prompt = if observe {
-            None
-        } else {
-            selected_prompt(&args, task_id.is_some())?
-        };
-        let task_id = observation.or(task_id);
-        if prompt.is_some() && token.is_none() && auth_mode != AuthMode::None {
-            return Err("Submission requires a caller credential");
-        }
-        let submission = prompt
-            .as_deref()
-            .map(|text| match context_id.as_deref() {
-                Some(context) => TaskSubmission::continuing(text, context),
-                None => TaskSubmission::new(text),
-            })
-            .transpose()?;
-        let timeout = submission_timeout(env::var("AGENT_SUBMISSION_TIMEOUT_SECONDS"))?;
-        let include_event = committed_event_reads(env::var("AGENT_INCLUDE_COMMITTED_EVENT"))?;
-        let client = ArboraClient::with_auth_mode(&endpoint, token.as_deref(), auth_mode)?
-            .with_submission_timeout(timeout)?
-            .with_committed_event_reads(include_event);
-        if headless {
-            headless::run(&client, task_id.as_deref(), submission.as_ref()).await
-        } else {
-            run(Arc::new(client), task_id, submission, observe).await
-        }
-    }
-    .await;
+    let result = launch_app(args).await;
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
@@ -916,6 +718,22 @@ async fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+fn help_requested(args: &[OsString]) -> bool {
+    matches!(args, [flag] if flag == "--help" || flag == "-h")
+}
+
+async fn launch_app(args: Vec<OsString>) -> Result<(), &'static str> {
+    if let Some(local) = local_runtime::options(&args)? {
+        return local_runtime::run(local).await;
+    }
+    let endpoint = env::var("AGENT_URL").unwrap_or_else(|_| "http://localhost:8000".to_owned());
+    let (headless, args) = cli::arguments(&args)?;
+    let (token, auth_mode) = caller_credential()?;
+    let (observe, task_id, submission) = launch_targets(&args, token.is_some(), auth_mode)?;
+    let client = remote_client(&endpoint, token.as_deref(), auth_mode)?;
+    launch(client, headless, observe, task_id, submission).await
 }
 
 fn report_error(error: &str) {
@@ -1805,6 +1623,7 @@ mod tests {
 #[cfg(test)]
 mod confirmation_view_tests {
     use super::*;
+    use crossterm::event::KeyCode;
     use ratatui::{Terminal, backend::TestBackend};
 
     // spec: TUIG-RUNTIME-R008.2.2

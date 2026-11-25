@@ -271,36 +271,64 @@ fn decode_run(
     if value.get("run_id").and_then(Value::as_str) != Some(run_id) {
         return Err(ReadRefusal::WrongRun);
     }
-    let config_ref = optional(value, "harness_config_ref", text)?;
+    let config = decode_config(value)?;
+    let (current_plan, validity) =
+        decode_plan(value.get("current_plan"), run_id, wall, now).unwrap_or((None, None));
+    Ok(RunRead {
+        projection: projection_fields(value, config, current_plan)?,
+        validity,
+    })
+}
+
+fn decode_config(value: &Value) -> Result<AppliedConfig, ReadRefusal> {
+    let reference = optional(value, "harness_config_ref", text)?;
     let mut config = AppliedConfig {
-        reference: config_ref,
+        reference,
         ..AppliedConfig::default()
     };
     if let Some(raw) = value.get("harness_config").filter(|v| !v.is_null()) {
         if !raw.is_object() || config.reference.is_none() {
             return Err(ReadRefusal::Unavailable);
         }
-        config.context_policy = optional(raw, "context_policy", config_text)?;
-        config.plan_scaffold = optional(raw, "plan_scaffold", config_text)?;
-        config.action_space = optional(raw, "action_space", config_text)?;
+        decode_config_fields(raw, &mut config)?;
     }
-    let (current_plan, validity) =
-        decode_plan(value.get("current_plan"), run_id, wall, now).unwrap_or((None, None));
-    Ok(RunRead {
-        projection: RunProjection {
-            run_id: run_id.to_owned(),
-            summary_available: true,
-            peak_context_tokens: optional(value, "peak_context_tokens", Value::as_u64)?,
-            context_budget_tokens: optional(value, "context_budget_tokens", Value::as_u64)?,
-            cost_usd: optional(value, "cost_usd", |v| {
-                v.as_f64().filter(|n| n.is_finite() && *n >= 0.0)
-            })?,
-            termination_reason: optional(value, "termination_reason", text)?,
-            config,
-            current_plan,
-        },
-        validity,
+    Ok(config)
+}
+
+fn decode_config_fields(raw: &Value, config: &mut AppliedConfig) -> Result<(), ReadRefusal> {
+    config.context_policy = optional(raw, "context_policy", config_text)?;
+    config.plan_scaffold = optional(raw, "plan_scaffold", config_text)?;
+    config.action_space = optional(raw, "action_space", config_text)?;
+    Ok(())
+}
+
+fn cost_usd(value: &Value) -> Option<f64> {
+    value.as_f64().filter(|n| n.is_finite() && *n >= 0.0)
+}
+
+fn projection_fields(
+    value: &Value,
+    config: AppliedConfig,
+    current_plan: Option<PlanSnapshot>,
+) -> Result<RunProjection, ReadRefusal> {
+    Ok(RunProjection {
+        run_id: run_id_field(value)?,
+        summary_available: true,
+        peak_context_tokens: optional(value, "peak_context_tokens", Value::as_u64)?,
+        context_budget_tokens: optional(value, "context_budget_tokens", Value::as_u64)?,
+        cost_usd: optional(value, "cost_usd", cost_usd)?,
+        termination_reason: optional(value, "termination_reason", text)?,
+        config,
+        current_plan,
     })
+}
+
+fn run_id_field(value: &Value) -> Result<String, ReadRefusal> {
+    value
+        .get("run_id")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or(ReadRefusal::WrongRun)
 }
 
 fn decode_plan_only(
@@ -326,6 +354,11 @@ fn decode_plan_only(
     })
 }
 
+struct SnapshotIdentity {
+    revision: u64,
+    observed_at: String,
+}
+
 fn decode_plan(
     value: Option<&Value>,
     run_id: &str,
@@ -336,54 +369,86 @@ fn decode_plan(
     if value.get("availability")?.as_str()? != "available" {
         return None;
     }
-    let plan = value.get("snapshot")?;
-    if plan.get("run_id")?.as_str()? != run_id {
-        return None;
-    }
-    let revision = plan.get("revision")?.as_u64()?;
-    let observed_at = plan.get("observed_at")?.as_str()?;
-    let observed = OffsetDateTime::parse(observed_at, &Rfc3339).ok()?;
-    let expires = OffsetDateTime::parse(plan.get("expires_at")?.as_str()?, &Rfc3339).ok()?;
-    if observed.offset() != UtcOffset::UTC
-        || expires.offset() != UtcOffset::UTC
-        || observed > wall
-        || expires <= wall
-        || expires <= observed
-    {
-        return None;
-    }
-    let remaining = Duration::try_from(expires - wall).ok()?;
-    let deadline = now.checked_add(remaining)?;
-    let items: Option<Vec<_>> = plan
-        .get("items")?
-        .as_array()?
-        .iter()
-        .map(|item| {
-            Some(PlanItem {
-                text: text(item.get("text")?)?,
-                status: match item.get("status")?.as_str()? {
-                    "pending" => PlanStatus::Pending,
-                    "in_progress" => PlanStatus::InProgress,
-                    "done" => PlanStatus::Done,
-                    _ => return None,
-                },
-            })
-        })
-        .collect();
+    let snapshot = value.get("snapshot")?;
+    let identity = decode_snapshot_identity(snapshot, run_id)?;
+    let deadline = plan_window(&identity, snapshot, wall, now)?;
+    let items = plan_items(snapshot)?;
     Some((
         Some(PlanSnapshot {
             run_id: run_id.to_owned(),
-            revision: revision.to_string(),
-            observed_at: observed_at.to_owned(),
-            items: items?,
+            revision: identity.revision.to_string(),
+            observed_at: identity.observed_at.to_owned(),
+            items,
         }),
         Some(SnapshotValidity {
             run_id: run_id.to_owned(),
-            revision,
-            observed_at: observed_at.to_owned(),
+            revision: identity.revision,
+            observed_at: identity.observed_at.to_owned(),
             deadline,
         }),
     ))
+}
+
+fn decode_snapshot_identity(snapshot: &Value, run_id: &str) -> Option<SnapshotIdentity> {
+    if snapshot.get("run_id")?.as_str()? != run_id {
+        return None;
+    }
+    let revision = snapshot.get("revision")?.as_u64()?;
+    let observed_at = snapshot.get("observed_at")?.as_str()?;
+    Some(SnapshotIdentity {
+        revision,
+        observed_at: observed_at.to_owned(),
+    })
+}
+
+fn plan_window(
+    identity: &SnapshotIdentity,
+    snapshot: &Value,
+    wall: OffsetDateTime,
+    now: Instant,
+) -> Option<Instant> {
+    let observed = OffsetDateTime::parse(&identity.observed_at, &Rfc3339).ok()?;
+    let expires = OffsetDateTime::parse(snapshot.get("expires_at")?.as_str()?, &Rfc3339).ok()?;
+    if !window_ok(observed, expires, wall) {
+        return None;
+    }
+    let remaining = Duration::try_from(expires - wall).ok()?;
+    now.checked_add(remaining)
+}
+
+fn window_ok(observed: OffsetDateTime, expires: OffsetDateTime, wall: OffsetDateTime) -> bool {
+    observed.offset() == UtcOffset::UTC
+        && expires.offset() == UtcOffset::UTC
+        && observed <= wall
+        && expires > wall
+        && expires > observed
+}
+
+fn plan_items(snapshot: &Value) -> Option<Vec<PlanItem>> {
+    snapshot
+        .get("items")?
+        .as_array()?
+        .iter()
+        .map(plan_item)
+        .collect()
+}
+
+fn plan_item(item: &Value) -> Option<PlanItem> {
+    let text = text(item.get("text")?)?;
+    let status = item.get("status")?.as_str()?;
+    Some(PlanItem {
+        text,
+        status: plan_status(status)?,
+    })
+}
+
+fn plan_status(status: &str) -> Option<PlanStatus> {
+    match status {
+        "pending" => Some(PlanStatus::Pending),
+        "in_progress" => Some(PlanStatus::InProgress),
+        "done" => Some(PlanStatus::Done),
+        _ => None,
+    }
 }
 
 #[cfg(test)]

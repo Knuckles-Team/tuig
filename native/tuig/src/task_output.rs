@@ -27,34 +27,47 @@ impl TaskOutput {
         if artifacts.is_empty() {
             return Ok(Self::Unavailable);
         }
+        Ok(Self::Text(Self::render(artifacts)?))
+    }
+
+    fn render(artifacts: &[Value]) -> Result<String, &'static str> {
         let mut output = String::new();
         let mut bytes = 0_usize;
         for (index, artifact) in artifacts.iter().enumerate() {
-            let parts = artifact
-                .get("parts")
-                .and_then(Value::as_array)
-                .filter(|parts| !parts.is_empty() && parts.len() <= 32)
-                .ok_or(INVALID)?;
             if index > 0 {
-                bytes = bytes.checked_add(1).ok_or(INVALID)?;
-                if bytes > MAX_TEXT_BYTES {
-                    return Err(INVALID);
-                }
+                bytes = Self::add_bytes(bytes, 1)?;
                 output.push('\n');
             }
-            for part in parts {
-                if part.get("kind").and_then(Value::as_str) != Some("text") {
-                    return Err(INVALID);
-                }
-                let text = part.get("text").and_then(Value::as_str).ok_or(INVALID)?;
-                bytes = bytes.checked_add(text.len()).ok_or(INVALID)?;
-                if bytes > MAX_TEXT_BYTES {
-                    return Err(INVALID);
-                }
+            for part in Self::parts(artifact)? {
+                let text = Self::part_text(part)?;
+                bytes = Self::add_bytes(bytes, text.len())?;
                 output.push_str(&terminal_text(text));
             }
         }
-        Ok(Self::Text(output))
+        Ok(output)
+    }
+
+    fn parts(artifact: &Value) -> Result<&Vec<Value>, &'static str> {
+        artifact
+            .get("parts")
+            .and_then(Value::as_array)
+            .filter(|parts| !parts.is_empty() && parts.len() <= 32)
+            .ok_or(INVALID)
+    }
+
+    fn part_text(part: &Value) -> Result<&str, &'static str> {
+        if part.get("kind").and_then(Value::as_str) != Some("text") {
+            return Err(INVALID);
+        }
+        part.get("text").and_then(Value::as_str).ok_or(INVALID)
+    }
+
+    fn add_bytes(bytes: usize, more: usize) -> Result<usize, &'static str> {
+        let total = bytes.checked_add(more).ok_or(INVALID)?;
+        if total > MAX_TEXT_BYTES {
+            return Err(INVALID);
+        }
+        Ok(total)
     }
 
     pub fn text(&self) -> String {

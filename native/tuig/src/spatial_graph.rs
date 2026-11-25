@@ -10,7 +10,10 @@ use ratatui::{
     text::Line,
     widgets::{Block, BorderType, Paragraph, Widget},
 };
-use tuig_native::{execution_graph::ExecutionGraph, public_run_events::literal};
+use tuig_native::{
+    execution_graph::{ExecutionGraph, ExecutionStep},
+    public_run_events::literal,
+};
 
 const NODE_WIDTH: u16 = 22;
 const NODE_HEIGHT: u16 = 4;
@@ -180,6 +183,30 @@ impl GraphWidget<'_> {
 impl Widget for GraphWidget<'_> {
     fn render(self, area: Rect, buffer: &mut Buffer) {
         buffer.set_style(area, self.style);
+        self.render_edges(area, buffer);
+        for (index, (&(x, y), node)) in self
+            .layout
+            .positions
+            .iter()
+            .zip(&self.graph.nodes)
+            .enumerate()
+        {
+            self.render_node(area, buffer, index, node, x, y);
+        }
+    }
+}
+
+/// One clipped copy of a node card into the viewport buffer.
+#[derive(Clone, Copy)]
+struct Blit {
+    /// Destination rect in buffer coordinates.
+    target: Rect,
+    /// Offset from the card origin to the visible rect's origin.
+    margin: (u16, u16),
+}
+
+impl GraphWidget<'_> {
+    fn render_edges(&self, area: Rect, buffer: &mut Buffer) {
         for &(from, to) in self
             .graph
             .edges
@@ -197,47 +224,69 @@ impl Widget for GraphWidget<'_> {
             self.vertical(buffer, area, end, y2 + 1, lane);
             self.cell(buffer, area, end + 1, y2 + 1, '>');
         }
-        for (index, (&(x, y), node)) in self
-            .layout
-            .positions
-            .iter()
-            .zip(&self.graph.nodes)
-            .enumerate()
-        {
-            let node_area = Rect::new(x, y, NODE_WIDTH, NODE_HEIGHT);
-            let visible =
-                node_area.intersection(Rect::new(self.x, self.y, area.width, area.height));
-            if visible.is_empty() {
-                continue;
-            }
-            let selected = index == self.selected;
-            let node_style = if selected {
-                self.style.add_modifier(Modifier::REVERSED)
-            } else {
-                self.style
-            };
-            let mut card = Buffer::empty(Rect::new(0, 0, NODE_WIDTH, NODE_HEIGHT));
-            Paragraph::new(vec![
-                Line::from(label(&node.task_id)),
-                Line::from(node.status.as_str()),
-            ])
-            .style(node_style)
-            .block(
-                Block::bordered()
-                    .border_type(BorderType::Rounded)
-                    .title(format!("{}{}", if selected { "> " } else { "" }, index + 1)),
-            )
-            .render(card.area, &mut card);
-            for row in visible.y..visible.bottom() {
-                for column in visible.x..visible.right() {
-                    let source = &card[(column - x, row - y)];
-                    let target = &mut buffer[(area.x + column - self.x, area.y + row - self.y)];
-                    // Do not emit half of a wide glyph at the clipped right edge.
-                    if Line::from(source.symbol()).width() > usize::from(visible.right() - column) {
-                        target.set_char(' ').set_style(node_style);
-                    } else {
-                        *target = source.clone();
-                    }
+    }
+
+    fn render_node(
+        &self,
+        area: Rect,
+        buffer: &mut Buffer,
+        index: usize,
+        node: &ExecutionStep,
+        x: u16,
+        y: u16,
+    ) {
+        let node_area = Rect::new(x, y, NODE_WIDTH, NODE_HEIGHT);
+        let visible = node_area.intersection(Rect::new(self.x, self.y, area.width, area.height));
+        if visible.is_empty() {
+            return;
+        }
+        let selected = index == self.selected;
+        let node_style = if selected {
+            self.style.add_modifier(Modifier::REVERSED)
+        } else {
+            self.style
+        };
+        let mut card = Buffer::empty(Rect::new(0, 0, NODE_WIDTH, NODE_HEIGHT));
+        Paragraph::new(vec![
+            Line::from(label(&node.task_id)),
+            Line::from(node.status.as_str()),
+        ])
+        .style(node_style)
+        .block(
+            Block::bordered()
+                .border_type(BorderType::Rounded)
+                .title(format!("{}{}", if selected { "> " } else { "" }, index + 1)),
+        )
+        .render(card.area, &mut card);
+        self.blit_node(
+            buffer,
+            &card,
+            Blit {
+                target: Rect::new(
+                    area.x + visible.x - self.x,
+                    area.y + visible.y - self.y,
+                    visible.width,
+                    visible.height,
+                ),
+                margin: (visible.x - x, visible.y - y),
+            },
+            node_style,
+        );
+    }
+
+    fn blit_node(&self, buffer: &mut Buffer, card: &Buffer, blit: Blit, node_style: Style) {
+        for row in blit.target.y..blit.target.bottom() {
+            for column in blit.target.x..blit.target.right() {
+                let source = &card[(
+                    column - blit.target.x + blit.margin.0,
+                    row - blit.target.y + blit.margin.1,
+                )];
+                let target = &mut buffer[(column, row)];
+                // Do not emit half of a wide glyph at the clipped right edge.
+                if Line::from(source.symbol()).width() > usize::from(blit.target.right() - column) {
+                    target.set_char(' ').set_style(node_style);
+                } else {
+                    *target = source.clone();
                 }
             }
         }

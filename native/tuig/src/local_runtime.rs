@@ -13,68 +13,89 @@ pub struct Options {
 }
 
 pub fn options(args: &[OsString]) -> Result<Option<Options>, &'static str> {
-    let mut local = false;
-    let mut headless = false;
-    let mut model = None;
-    let mut prompt = None;
-    let mut other = false;
+    let mut flags = LocalArgs::default();
     let mut index = 0;
     while index < args.len() {
-        match args[index].to_str() {
-            Some("--local-runtime") if !local => local = true,
-            Some("--headless") if !headless => headless = true,
-            Some("--local-model") | Some("--prompt") => {
-                let flag = args[index].to_str();
-                index += 1;
-                let value = args.get(index).and_then(|arg| arg.to_str());
-                let target = if flag == Some("--local-model") {
-                    &mut model
-                } else {
-                    &mut prompt
-                };
-                if target.is_some() || value.is_none() {
-                    other = true;
-                }
-                *target = value.map(str::to_owned);
-            }
-            Some("--observe-task") => {
-                other = true;
-                index += 1;
-            }
-            _ => other = true,
-        }
-        index += 1;
+        flags.next(args, &mut index);
     }
-    if !local {
+    if !flags.local {
         return Ok(None);
     }
-    if other {
+    if flags.other {
         return Err(
             "Local runtime accepts --local-model PROVIDER:MODEL, optional --prompt TEXT and --headless only",
         );
     }
-    let model = model
-        .filter(|value| {
-            value.len() <= 512
-                && !value.chars().any(char::is_whitespace)
-                && value
-                    .split_once(':')
-                    .is_some_and(|(provider, name)| !provider.is_empty() && !name.is_empty())
-                && !value.starts_with('-')
-        })
+    let model = flags
+        .model
+        .filter(|value| model_shape_ok(value))
         .ok_or("Local runtime requires --local-model PROVIDER:MODEL")?;
-    if prompt
+    if flags
+        .prompt
         .as_ref()
-        .is_some_and(|text| text.trim().is_empty() || text.len() > 16_384)
-        || (headless && prompt.is_none())
+        .is_some_and(|text| prompt_shape_bad(text))
+        || (flags.headless && flags.prompt.is_none())
     {
         return Err("Local runtime requires --prompt TEXT (1..16384 bytes) in headless mode");
     }
     Ok(Some(Options {
         model,
-        prompt,
-        headless,
+        prompt: flags.prompt,
+        headless: flags.headless,
     }))
+}
+
+#[derive(Default)]
+struct LocalArgs {
+    local: bool,
+    headless: bool,
+    model: Option<String>,
+    prompt: Option<String>,
+    other: bool,
+}
+
+impl LocalArgs {
+    fn next(&mut self, args: &[OsString], index: &mut usize) {
+        match args[*index].to_str() {
+            Some("--local-runtime") if !self.local => self.local = true,
+            Some("--headless") if !self.headless => self.headless = true,
+            Some("--local-model") | Some("--prompt") => self.value_flag(args, index),
+            Some("--observe-task") => {
+                self.other = true;
+                *index += 1;
+            }
+            _ => self.other = true,
+        }
+        *index += 1;
+    }
+
+    fn value_flag(&mut self, args: &[OsString], index: &mut usize) {
+        let flag = args[*index].to_str();
+        *index += 1;
+        let value = args.get(*index).and_then(|arg| arg.to_str());
+        let target = if flag == Some("--local-model") {
+            &mut self.model
+        } else {
+            &mut self.prompt
+        };
+        if target.is_some() || value.is_none() {
+            self.other = true;
+        }
+        *target = value.map(str::to_owned);
+    }
+}
+
+fn model_shape_ok(value: &str) -> bool {
+    value.len() <= 512
+        && !value.chars().any(char::is_whitespace)
+        && value
+            .split_once(':')
+            .is_some_and(|(provider, name)| !provider.is_empty() && !name.is_empty())
+        && !value.starts_with('-')
+}
+
+fn prompt_shape_bad(text: &str) -> bool {
+    text.trim().is_empty() || text.len() > 16_384
 }
 
 #[cfg(unix)]
@@ -151,37 +172,51 @@ pub async fn run(options: Options) -> Result<(), &'static str> {
     }
     let output = Output::new()?;
     let (mut child, mut client, cwd) = spawn_backend(&options.model)?;
-    let exchange = async {
-        timeout(Duration::from_secs(30), client.initialize(&cwd))
-            .await
-            .map_err(|_| "Local ACP initialization timed out")??;
-        client
-            .prompt(options.prompt.as_deref().ok_or("Missing local prompt")?)
-            .await?;
-        client
-            .response(3, async |text| output.write(text).await)
-            .await
-    };
+    let prompt = options.prompt.as_deref().ok_or("Missing local prompt")?;
     let result = tokio::select! {
         biased;
         _ = tokio::signal::ctrl_c() => Err("Local ACP interrupted; cancellation requested"),
-        result = timeout(Duration::from_secs(330), exchange) => {
+        result = timeout(
+            Duration::from_secs(330),
+            headless_exchange(&mut client, &cwd, prompt, &output),
+        ) => {
             result.unwrap_or(Err("Local ACP turn timed out; cancellation requested"))
         }
     };
     let turn = match result {
         Ok(value) => completed(&value),
         Err(error) => {
-            // A cancel notification is not an acknowledgement. Drain briefly, then reap.
-            let _ = timeout(Duration::from_secs(5), async {
-                client.cancel().await?;
-                client.response(3, async |_| Ok(())).await
-            })
-            .await;
+            drain_cancel(&mut client).await;
             Err(error)
         }
     };
     finish_backend(client, &mut child, turn).await
+}
+
+#[cfg(unix)]
+async fn headless_exchange(
+    client: &mut LocalClient,
+    cwd: &str,
+    prompt: &str,
+    output: &Output,
+) -> Result<serde_json::Value, &'static str> {
+    timeout(Duration::from_secs(30), client.initialize(cwd))
+        .await
+        .map_err(|_| "Local ACP initialization timed out")??;
+    client.prompt(prompt).await?;
+    client
+        .response(3, async |text| output.write(text).await)
+        .await
+}
+
+#[cfg(unix)]
+async fn drain_cancel(client: &mut LocalClient) {
+    // A cancel notification is not an acknowledgement. Drain briefly, then reap.
+    let _ = timeout(Duration::from_secs(5), async {
+        client.cancel().await?;
+        client.response(3, async |_| Ok(())).await
+    })
+    .await;
 }
 
 #[cfg(unix)]

@@ -122,26 +122,44 @@ impl TaskStreamDecoder {
     }
 
     fn end_line(&mut self) -> Result<Option<StreamEvent>, StreamError> {
+        self.strip_bom();
+        if self.line.is_empty() {
+            return self.flush();
+        }
+        let line = std::mem::take(&mut self.line);
+        let line = std::str::from_utf8(&line).map_err(|_| StreamError::InvalidUtf8)?;
+        self.apply(line)?;
+        Ok(None)
+    }
+
+    fn strip_bom(&mut self) {
         if self.first_line {
             self.first_line = false;
             if self.line.starts_with(&[0xef, 0xbb, 0xbf]) {
                 self.line.drain(..3);
             }
         }
-        if self.line.is_empty() {
-            let event = if self.has_data {
-                Some(self.validate_event()?)
-            } else {
-                None
-            };
-            self.data.clear();
-            self.has_data = false;
-            self.event_bytes = 0;
-            return Ok(event);
-        }
-        let line = std::str::from_utf8(&self.line).map_err(|_| StreamError::InvalidUtf8)?;
+    }
+
+    fn flush(&mut self) -> Result<Option<StreamEvent>, StreamError> {
+        let event = if self.has_data {
+            Some(self.validate_event()?)
+        } else {
+            None
+        };
+        self.data.clear();
+        self.has_data = false;
+        self.event_bytes = 0;
+        Ok(event)
+    }
+
+    fn field(line: &str) -> (&str, &str) {
         let (field, value) = line.split_once(':').unwrap_or((line, ""));
-        let value = value.strip_prefix(' ').unwrap_or(value);
+        (field, value.strip_prefix(' ').unwrap_or(value))
+    }
+
+    fn apply(&mut self, line: &str) -> Result<(), StreamError> {
+        let (field, value) = Self::field(line);
         match field {
             "data" => {
                 if self.has_data {
@@ -158,8 +176,7 @@ impl TaskStreamDecoder {
             }
             _ => {}
         }
-        self.line.clear();
-        Ok(None)
+        Ok(())
     }
 
     fn validate_event(&mut self) -> Result<StreamEvent, StreamError> {

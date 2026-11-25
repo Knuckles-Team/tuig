@@ -4,7 +4,7 @@ use crate::{
     presentation::{ThemeSelection, Viewport, accepts_key_event},
 };
 use crossterm::event::{
-    DisableBracketedPaste, DisableMouseCapture, Event, EventStream, KeyCode, KeyModifiers,
+    DisableBracketedPaste, DisableMouseCapture, Event, EventStream, KeyCode, KeyEvent, KeyModifiers,
 };
 use futures_util::StreamExt;
 use ratatui::{
@@ -108,44 +108,90 @@ async fn turn<R: tokio::io::AsyncRead + Unpin, W: tokio::io::AsyncWrite + Unpin>
     cancel: &mut watch::Receiver<bool>,
     quit: &mut watch::Receiver<bool>,
 ) -> Result<&'static str, &'static str> {
-    let id = tokio::select! {
-        biased;
-        _ = signaled(quit) => return Err("Local submission interrupted; outcome unknown. No replay."),
-        _ = signaled(cancel) => return Err("Local submission interrupted; outcome unknown. No replay."),
-        result = timeout(Duration::from_secs(5), client.prompt(text)) => result.map_err(|_| "Local submission timed out; outcome unknown. No replay.")??,
-    };
-    let result = tokio::select! {
-        biased;
-        _ = signaled(quit) => None,
-        _ = signaled(cancel) => None,
-        result = timeout(Duration::from_secs(330), client.response(id, |chunk: &str| {
-            let update = Update::Text(terminal_text(chunk));
-            let updates = updates.clone();
-            async move { updates.send(update).await.map_err(|_| "Local display closed") }
-        })) => Some(result),
-    };
-    let value = match result {
-        Some(Ok(value)) => value?,
-        Some(Err(_)) => {
-            let _ = timeout(Duration::from_secs(5), async {
-                client.cancel().await?;
-                client.response(id, async |_| Ok(())).await
-            })
-            .await;
+    let id = submit_prompt(client, text, cancel, quit).await?;
+    let reply = wait_turn(client, id, updates, cancel, quit).await;
+    let value = match reply {
+        TurnReply::Value(value) => value,
+        TurnReply::Failed(message) => return Err(message),
+        TurnReply::TimedOut => {
+            drain_cancel(client, id).await;
             return Err("Local turn timed out; session closed without replay.");
         }
-        None => timeout(Duration::from_secs(5), async {
-            client.cancel().await?;
-            client.response(id, async |_| Ok(())).await
-        })
-        .await
-        .map_err(|_| "Cancellation outcome unknown; session closed without replay.")??,
+        TurnReply::Interrupted => cancel_outcome(client, id).await?,
     };
     match value["stopReason"].as_str() {
         Some("end_turn") => Ok("Turn completed. p: compose next turn"),
         Some("cancelled") => Ok("Turn canceled (acknowledged). p: compose next turn"),
         _ => Err("Local turn outcome unavailable; session closed without replay."),
     }
+}
+
+async fn submit_prompt<R: tokio::io::AsyncRead + Unpin, W: tokio::io::AsyncWrite + Unpin>(
+    client: &mut tuig_native::acp::TextClient<R, W>,
+    text: &str,
+    cancel: &mut watch::Receiver<bool>,
+    quit: &mut watch::Receiver<bool>,
+) -> Result<u64, &'static str> {
+    tokio::select! {
+        biased;
+        _ = signaled(quit) => Err("Local submission interrupted; outcome unknown. No replay."),
+        _ = signaled(cancel) => Err("Local submission interrupted; outcome unknown. No replay."),
+        result = timeout(Duration::from_secs(5), client.prompt(text)) => match result {
+            Ok(id) => id,
+            Err(_) => Err("Local submission timed out; outcome unknown. No replay."),
+        },
+    }
+}
+
+async fn wait_turn<R: tokio::io::AsyncRead + Unpin, W: tokio::io::AsyncWrite + Unpin>(
+    client: &mut tuig_native::acp::TextClient<R, W>,
+    id: u64,
+    updates: &mpsc::Sender<Update>,
+    cancel: &mut watch::Receiver<bool>,
+    quit: &mut watch::Receiver<bool>,
+) -> TurnReply {
+    tokio::select! {
+        biased;
+        _ = signaled(quit) => TurnReply::Interrupted,
+        _ = signaled(cancel) => TurnReply::Interrupted,
+        result = timeout(Duration::from_secs(330), client.response(id, |chunk: &str| {
+            let update = Update::Text(terminal_text(chunk));
+            let updates = updates.clone();
+            async move { updates.send(update).await.map_err(|_| "Local display closed") }
+        })) => match result {
+            Ok(Ok(value)) => TurnReply::Value(value),
+            Ok(Err(message)) => TurnReply::Failed(message),
+            Err(_) => TurnReply::TimedOut,
+        },
+    }
+}
+
+enum TurnReply {
+    Value(serde_json::Value),
+    Failed(&'static str),
+    TimedOut,
+    Interrupted,
+}
+
+/// Cancel the in-flight turn and return the backend's final reply for it.
+async fn cancel_outcome<R: tokio::io::AsyncRead + Unpin, W: tokio::io::AsyncWrite + Unpin>(
+    client: &mut tuig_native::acp::TextClient<R, W>,
+    id: u64,
+) -> Result<serde_json::Value, &'static str> {
+    timeout(Duration::from_secs(5), async {
+        client.cancel().await?;
+        client.response(id, async |_| Ok(())).await
+    })
+    .await
+    .map_err(|_| "Cancellation outcome unknown; session closed without replay.")?
+}
+
+/// Drain a cancel whose outcome is no longer needed, ignoring its result.
+async fn drain_cancel<R: tokio::io::AsyncRead + Unpin, W: tokio::io::AsyncWrite + Unpin>(
+    client: &mut tuig_native::acp::TextClient<R, W>,
+    id: u64,
+) {
+    let _ = cancel_outcome(client, id).await;
 }
 
 async fn session(
@@ -253,6 +299,293 @@ impl<W: Write> Drop for TerminalCleanup<W> {
     }
 }
 
+struct LocalTerminal<'a> {
+    terminal: ratatui::Terminal<CrosstermBackend<TerminalOutput<std::fs::File>>>,
+    cleanup: TerminalCleanup<&'a mut std::fs::File>,
+}
+
+/// Open the alternate screen and terminal input for the local session.
+fn setup_terminal<'a>(output: &'a mut std::fs::File) -> Result<LocalTerminal<'a>, &'static str> {
+    let cleanup = Rc::new(Cell::new(false));
+    let initialized = (|| {
+        crossterm::terminal::enable_raw_mode()?;
+        crossterm::execute!(output, crossterm::terminal::EnterAlternateScreen)?;
+        ratatui::Terminal::new(CrosstermBackend::new(TerminalOutput {
+            writer: Some(std::io::BufWriter::with_capacity(
+                64 * 1024,
+                output.try_clone()?,
+            )),
+            cleanup: Rc::clone(&cleanup),
+        }))
+    })();
+    let terminal = match initialized {
+        Ok(terminal) => terminal,
+        Err(_) => {
+            restore_terminal(output);
+            return Err("Cannot initialize local terminal");
+        }
+    };
+    let cleanup = TerminalCleanup { output, cleanup };
+    if crate::enable_terminal_input(cleanup.output).is_err() {
+        return Err("Cannot enable terminal input");
+    }
+    Ok(LocalTerminal { terminal, cleanup })
+}
+
+/// The two outbound control channels of the interactive local session.
+struct ControlChannels<'a> {
+    commands: &'a mpsc::Sender<String>,
+    cancel: &'a watch::Sender<bool>,
+}
+
+/// Display state for the interactive local session.
+struct UiState {
+    composer: Composer,
+    initial: Option<String>,
+    transcript: Transcript,
+    viewport: Viewport,
+    follow: bool,
+    ready: bool,
+    active: bool,
+    starting: bool,
+    status: String,
+    outcome: Result<(), &'static str>,
+    worker_done: bool,
+}
+
+impl UiState {
+    fn new() -> Self {
+        Self {
+            composer: Composer::local(),
+            initial: None,
+            transcript: Transcript::default(),
+            viewport: Viewport::default(),
+            follow: true,
+            ready: false,
+            active: false,
+            starting: true,
+            status: "Starting local ACP session...".to_owned(),
+            outcome: Ok(()),
+            worker_done: false,
+        }
+    }
+
+    fn apply_update(
+        &mut self,
+        update: Update,
+        channels: &ControlChannels,
+    ) -> Result<(), &'static str> {
+        match update {
+            Update::Text(text) => {
+                self.transcript.append(&text);
+            }
+            Update::Ready(message) => self.apply_ready(message, channels)?,
+        }
+        Ok(())
+    }
+
+    fn apply_ready(
+        &mut self,
+        message: &str,
+        channels: &ControlChannels,
+    ) -> Result<(), &'static str> {
+        channels.cancel.send_replace(false);
+        self.ready = true;
+        self.active = false;
+        self.status = message.to_owned();
+        self.transcript.append(&format!("\n{message}\n"));
+        if !self.starting {
+            return Ok(());
+        }
+        self.starting = false;
+        match self.initial.take() {
+            Some(initial) => self.queue_turn(&initial, channels.commands),
+            None => {
+                self.composer.open = true;
+                Ok(())
+            }
+        }
+    }
+
+    fn queue_turn(
+        &mut self,
+        text: &str,
+        commands: &mpsc::Sender<String>,
+    ) -> Result<(), &'static str> {
+        commands
+            .try_send(text.to_owned())
+            .map_err(|_| "Local prompt queue unavailable")?;
+        self.transcript
+            .append(&format!("\nYou: {text}\nAssistant: "));
+        self.mark_turn_running();
+        Ok(())
+    }
+
+    fn mark_turn_running(&mut self) {
+        self.ready = false;
+        self.active = true;
+        self.status = "Local turn running... c: cancel".to_owned();
+    }
+
+    fn worker_exited(&mut self, outcome: Result<(), &'static str>) {
+        self.worker_done = true;
+        self.ready = false;
+        self.active = false;
+        self.composer.open = false;
+        self.outcome = outcome;
+        self.status = format!("Session closed: {}", outcome.err().unwrap_or("closed"));
+    }
+
+    /// Handle one terminal event; returns true when the event ends the loop.
+    fn handle_event(
+        &mut self,
+        event: Event,
+        themes: &mut ThemeSelection,
+        channels: &ControlChannels,
+    ) -> bool {
+        match event {
+            Event::Paste(text) if self.composer.open => {
+                self.composer.paste(&text);
+                false
+            }
+            Event::Mouse(mouse) if !self.composer.open => {
+                if self.viewport.mouse(mouse) {
+                    self.follow = false;
+                }
+                false
+            }
+            Event::Key(key) if accepts_key_event(key) => self.handle_key(key, themes, channels),
+            _ => false,
+        }
+    }
+
+    fn handle_key(
+        &mut self,
+        key: KeyEvent,
+        themes: &mut ThemeSelection,
+        channels: &ControlChannels,
+    ) -> bool {
+        if themes.key(key) {
+            return false;
+        }
+        if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            return true;
+        }
+        if self.composer.open {
+            self.composer_key(key, channels.commands);
+            return false;
+        }
+        self.global_key(key, channels.cancel)
+    }
+
+    fn composer_key(&mut self, key: KeyEvent, commands: &mpsc::Sender<String>) {
+        if let Some(text) = self.composer.key(key)
+            && self.ready
+            && commands.try_send(text.clone()).is_ok()
+        {
+            self.transcript
+                .append(&format!("\nYou: {text}\nAssistant: "));
+            self.follow = true;
+            self.composer.clear();
+            self.composer.open = false;
+            self.mark_turn_running();
+        }
+    }
+
+    fn global_key(&mut self, key: KeyEvent, cancel: &watch::Sender<bool>) -> bool {
+        if key.code == KeyCode::Char('q') {
+            return true;
+        }
+        match key.code {
+            KeyCode::Char('p') if self.ready => self.composer.open = true,
+            KeyCode::Char('c') if self.active => {
+                cancel.send_replace(true);
+                self.status = "Canceling local turn; waiting for acknowledgement...".to_owned();
+            }
+            code => {
+                if self.viewport.handle(code) {
+                    self.follow = code == KeyCode::End;
+                }
+            }
+        }
+        false
+    }
+}
+
+fn draw_local(frame: &mut ratatui::Frame, ui: &mut UiState, themes: &ThemeSelection) {
+    if ui.composer.open {
+        ui.composer
+            .draw(frame, themes.style(), themes.border_style());
+    } else {
+        draw_status(
+            frame,
+            &ui.status,
+            &ui.transcript,
+            &mut ui.viewport,
+            themes.style(),
+            themes.border_style(),
+            ui.follow,
+        );
+    }
+}
+
+async fn run_event_loop(
+    terminal: &mut ratatui::Terminal<CrosstermBackend<TerminalOutput<std::fs::File>>>,
+    ui: &mut UiState,
+    themes: &mut ThemeSelection,
+    updates: &mut mpsc::Receiver<Update>,
+    events: &mut EventStream,
+    channels: &ControlChannels<'_>,
+    worker: &mut tokio::task::JoinHandle<Result<(), &'static str>>,
+) -> Result<(), &'static str> {
+    let mut redraw = tokio::time::interval(Duration::from_millis(33));
+    redraw.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let interrupt = tokio::signal::ctrl_c();
+    tokio::pin!(interrupt);
+    loop {
+        tokio::select! {
+            biased;
+            _ = &mut interrupt => return Ok(()),
+            _ = redraw.tick() => {
+                terminal.draw(|frame| draw_local(frame, ui, themes))
+                    .map_err(|_| "Cannot draw terminal")?;
+            }
+            update = updates.recv(), if !ui.worker_done => {
+                if let Some(update) = update {
+                    ui.apply_update(update, channels)?;
+                } else {
+                    ui.worker_exited(
+                        (&mut *worker)
+                            .await
+                            .unwrap_or(Err("Local runtime interrupted; no replay.")),
+                    );
+                }
+            }
+            event = events.next() => {
+                let Some(Ok(event)) = event else { return Err("Terminal input unavailable"); };
+                if ui.handle_event(event, themes, channels) {
+                    return Ok(());
+                }
+            }
+        }
+    }
+}
+
+/// Reap the session worker once the display loop has ended.
+async fn settle_worker(
+    worker: tokio::task::JoinHandle<Result<(), &'static str>>,
+    worker_done: bool,
+    settled: Result<(), &'static str>,
+) -> Result<(), &'static str> {
+    if worker_done {
+        settled
+    } else {
+        worker
+            .await
+            .unwrap_or(Err("Local runtime cleanup interrupted"))
+    }
+}
+
 async fn run_ui(mut options: Options) -> Result<(), &'static str> {
     let initial = options.prompt.take();
     let (commands, command_rx) = mpsc::channel(1);
@@ -263,138 +596,39 @@ async fn run_ui(mut options: Options) -> Result<(), &'static str> {
     let mut output = rustix::io::fcntl_dupfd_cloexec(std::io::stdout(), 3)
         .map(std::fs::File::from)
         .map_err(|_| "Cannot open terminal output")?;
-    let cleanup = Rc::new(Cell::new(false));
-    let initialized = (|| {
-        crossterm::terminal::enable_raw_mode()?;
-        crossterm::execute!(&mut output, crossterm::terminal::EnterAlternateScreen)?;
-        ratatui::Terminal::new(CrosstermBackend::new(TerminalOutput {
-            writer: Some(std::io::BufWriter::with_capacity(
-                64 * 1024,
-                output.try_clone()?,
-            )),
-            cleanup: Rc::clone(&cleanup),
-        }))
-    })();
-    let mut terminal = match initialized {
-        Ok(terminal) => terminal,
-        Err(_) => {
-            restore_terminal(&mut output);
-            return Err("Cannot initialize local terminal");
-        }
-    };
-    let terminal_cleanup = TerminalCleanup {
-        output: &mut output,
-        cleanup: Rc::clone(&cleanup),
-    };
-    if crate::enable_terminal_input(terminal_cleanup.output).is_err() {
-        return Err("Cannot enable terminal input");
-    }
+    let LocalTerminal {
+        mut terminal,
+        cleanup: terminal_cleanup,
+    } = setup_terminal(&mut output)?;
     let mut worker =
         tokio::task::spawn_local(session(options, command_rx, update_tx, cancel_rx, quit_rx));
-    let mut worker_done = false;
+    let mut ui = UiState::new();
+    ui.initial = initial;
     let mut events = EventStream::new();
-    let mut composer = Composer::local();
-    let mut transcript = Transcript::default();
-    let mut viewport = Viewport::default();
-    let mut follow = true;
     let mut themes = ThemeSelection::new(
         &std::env::var("AGENT_THEME").unwrap_or_else(|_| "tokyo-night".to_owned()),
         &std::env::var("NO_COLOR").unwrap_or_default(),
     );
-    let mut ready = false;
-    let mut active = false;
-    let mut starting = true;
-    let mut status = "Starting local ACP session...".to_owned();
-    let mut outcome = Ok(());
-    let mut redraw = tokio::time::interval(Duration::from_millis(33));
-    redraw.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let interrupt = tokio::signal::ctrl_c();
-    tokio::pin!(interrupt);
-    let result = async {
-        loop {
-            tokio::select! {
-                biased;
-                _ = &mut interrupt => return Ok(()),
-                _ = redraw.tick() => {
-            terminal.draw(|frame| {
-                if composer.open { composer.draw(frame, themes.style(), themes.border_style()); }
-                else { draw_status(frame, &status, &transcript, &mut viewport, themes.style(), themes.border_style(), follow); }
-            }).map_err(|_| "Cannot draw terminal")?;
-                }
-                update = updates.recv(), if !worker_done => match update {
-                    Some(Update::Text(text)) => transcript.append(&text),
-                    Some(Update::Ready(message)) => {
-                        cancel.send_replace(false);
-                        ready = true;
-                        active = false;
-                        status = message.to_owned();
-                        transcript.append(&format!("\n{message}\n"));
-                        if starting {
-                            starting = false;
-                            if let Some(text) = initial.as_deref() {
-                                commands.try_send(text.to_owned()).map_err(|_| "Local prompt queue unavailable")?;
-                                transcript.append(&format!("\nYou: {text}\nAssistant: "));
-                                ready = false;
-                                active = true;
-                                status = "Local turn running... c: cancel".to_owned();
-                            } else { composer.open = true; }
-                        }
-                    }
-                    None => {
-                        worker_done = true;
-                        ready = false;
-                        active = false;
-                        composer.open = false;
-                        outcome = (&mut worker).await.unwrap_or(Err("Local runtime interrupted; no replay."));
-                        status = format!("Session closed: {}", outcome.err().unwrap_or("closed"));
-                    },
-                },
-                event = events.next() => {
-                    let Some(Ok(event)) = event else { return Err("Terminal input unavailable"); };
-                    match event {
-                        Event::Paste(text) if composer.open => composer.paste(&text),
-                        Event::Mouse(mouse) if !composer.open => { if viewport.mouse(mouse) { follow = false; } }
-                        Event::Key(key) if accepts_key_event(key) => {
-                            if themes.key(key) { continue; }
-                            if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) { return Ok(()); }
-                            if composer.open {
-                                if let Some(text) = composer.key(key)
-                                    && ready && commands.try_send(text.clone()).is_ok() {
-                                        transcript.append(&format!("\nYou: {text}\nAssistant: "));
-                                        follow = true;
-                                        composer.clear();
-                                        composer.open = false;
-                                        ready = false;
-                                        active = true;
-                                        status = "Local turn running... c: cancel".to_owned();
-                                }
-                                continue;
-                            }
-                            match key.code {
-                                KeyCode::Char('q') => return Ok(()),
-                                KeyCode::Char('p') if ready => composer.open = true,
-                                KeyCode::Char('c') if active => { cancel.send_replace(true); status = "Canceling local turn; waiting for acknowledgement...".to_owned(); },
-                                code => { if viewport.handle(code) { follow = code == KeyCode::End; } }
-                            }
-                        }
-                        _ => {},
-                    }
-                }
-            }
-        }
-    }.await;
+    let result = run_event_loop(
+        &mut terminal,
+        &mut ui,
+        &mut themes,
+        &mut updates,
+        &mut events,
+        &ControlChannels {
+            commands: &commands,
+            cancel: &cancel,
+        },
+        &mut worker,
+    )
+    .await;
     quit.send_replace(true);
     drop(commands);
     drop(updates);
     // Ratatui's Drop logs failed cursor restoration to stderr, which can itself
     // panic when stderr shares this full terminal. Cleanup writes are best effort.
     drop(terminal_cleanup);
-    if !worker_done {
-        outcome = worker
-            .await
-            .unwrap_or(Err("Local runtime cleanup interrupted"));
-    }
-    result.and(outcome)
+    result.and(settle_worker(worker, ui.worker_done, ui.outcome).await)
 }
 
 #[cfg(test)]

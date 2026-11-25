@@ -110,24 +110,35 @@ impl RunInspector {
         if projection.run_id != self.run_id {
             return Err(ReadRefusal::WrongRun);
         }
+        Self::sanitize_cost(&mut projection);
+        self.apply_plan(&mut projection, validator, now);
+        self.projection = Some(projection);
+        Ok(())
+    }
+
+    fn sanitize_cost(projection: &mut RunProjection) {
         if projection
             .cost_usd
             .is_some_and(|cost| !cost.is_finite() || cost < 0.0)
         {
             projection.cost_usd = None;
         }
+    }
+
+    fn apply_plan(
+        &mut self,
+        projection: &mut RunProjection,
+        validator: Option<&dyn PlanValidator>,
+        now: Instant,
+    ) {
         if let Some(plan) = projection.current_plan.take() {
-            let validated = if plan.run_id != self.run_id {
-                Err(PlanRefusal::WrongRun)
-            } else if plan.revision.is_empty() || plan.observed_at.is_empty() {
-                Err(PlanRefusal::Malformed)
-            } else {
-                validator
-                    .ok_or(PlanRefusal::Unavailable)
-                    .and_then(|validator| {
-                        validator.validate(&plan, self.previous_revision.as_deref(), now)
-                    })
-            };
+            let validated = plan_validation(
+                &plan,
+                &self.run_id,
+                self.previous_revision.as_deref(),
+                validator,
+                now,
+            );
             if let Ok(deadline) = validated
                 && deadline > now
             {
@@ -136,17 +147,10 @@ impl RunInspector {
                 projection.current_plan = Some(plan);
             }
         }
-        self.projection = Some(projection);
-        Ok(())
     }
 
     pub fn text(&mut self, now: Instant) -> String {
-        if self.plan_deadline.is_some_and(|deadline| deadline <= now) {
-            if let Some(projection) = self.projection.as_mut() {
-                projection.current_plan = None;
-            }
-            self.plan_deadline = None;
-        }
+        self.expire_plan(now);
         let mut lines = vec![format!("Run: {}", literal(&self.run_id))];
         let Some(run) = &self.projection else {
             lines.push("Run inspector unavailable".into());
@@ -155,7 +159,26 @@ impl RunInspector {
         if !run.summary_available {
             lines.push("Run summary unavailable; current-plan read only".into());
         }
-        lines.extend([
+        lines.extend(Self::run_lines(run));
+        lines.extend(Self::config_lines(&run.config));
+        match &run.current_plan {
+            None => lines.push("Current plan: unavailable".into()),
+            Some(plan) => lines.extend(Self::plan_lines(plan)),
+        }
+        lines.join("\n")
+    }
+
+    fn expire_plan(&mut self, now: Instant) {
+        if self.plan_deadline.is_some_and(|deadline| deadline <= now) {
+            if let Some(projection) = self.projection.as_mut() {
+                projection.current_plan = None;
+            }
+            self.plan_deadline = None;
+        }
+    }
+
+    fn run_lines(run: &RunProjection) -> Vec<String> {
+        vec![
             format!("Peak context tokens: {}", number(run.peak_context_tokens)),
             format!(
                 "Context budget tokens: {}",
@@ -175,40 +198,44 @@ impl RunInspector {
                 "Applied configuration reference: {}",
                 optional(&run.config.reference)
             ),
-        ]);
+        ]
+    }
+
+    fn config_lines(config: &AppliedConfig) -> Vec<String> {
         // Values without a recorded decision reference cannot be called applied.
-        let config = if run.config.reference.as_ref().is_some_and(|r| !r.is_empty()) {
-            run.config.clone()
+        let config = if config
+            .reference
+            .as_ref()
+            .is_some_and(|reference| !reference.is_empty())
+        {
+            config.clone()
         } else {
             AppliedConfig::default()
         };
-        lines.extend([
+        vec![
             format!("Context policy: {}", optional(&config.context_policy)),
             format!("Plan scaffold: {}", optional(&config.plan_scaffold)),
             format!("Action space: {}", optional(&config.action_space)),
-        ]);
-        match &run.current_plan {
-            None => lines.push("Current plan: unavailable".into()),
-            Some(plan) => {
-                lines.push(format!(
-                    "Current plan revision: {}",
-                    literal(&plan.revision)
-                ));
-                lines.push(format!("Observed at: {}", literal(&plan.observed_at)));
-                if plan.items.is_empty() {
-                    lines.push("Current plan: available (empty)".into());
-                }
-                for item in &plan.items {
-                    let status = match item.status {
-                        PlanStatus::Pending => "pending",
-                        PlanStatus::InProgress => "in_progress",
-                        PlanStatus::Done => "done",
-                    };
-                    lines.push(format!("[{status}] {}", literal(&item.text)));
-                }
-            }
+        ]
+    }
+
+    fn plan_lines(plan: &PlanSnapshot) -> Vec<String> {
+        let mut lines = vec![
+            format!("Current plan revision: {}", literal(&plan.revision)),
+            format!("Observed at: {}", literal(&plan.observed_at)),
+        ];
+        if plan.items.is_empty() {
+            lines.push("Current plan: available (empty)".into());
         }
-        lines.join("\n")
+        for item in &plan.items {
+            let status = match item.status {
+                PlanStatus::Pending => "pending",
+                PlanStatus::InProgress => "in_progress",
+                PlanStatus::Done => "done",
+            };
+            lines.push(format!("[{status}] {}", literal(&item.text)));
+        }
+        lines
     }
 
     pub fn render(&mut self, frame: &mut Frame<'_>, area: Rect, now: Instant) {
@@ -219,6 +246,24 @@ impl RunInspector {
             area,
         );
     }
+}
+
+fn plan_validation(
+    plan: &PlanSnapshot,
+    run_id: &str,
+    previous_revision: Option<&str>,
+    validator: Option<&dyn PlanValidator>,
+    now: Instant,
+) -> Result<Instant, PlanRefusal> {
+    if plan.run_id != run_id {
+        return Err(PlanRefusal::WrongRun);
+    }
+    if plan.revision.is_empty() || plan.observed_at.is_empty() {
+        return Err(PlanRefusal::Malformed);
+    }
+    validator
+        .ok_or(PlanRefusal::Unavailable)
+        .and_then(|validator| validator.validate(plan, previous_revision, now))
 }
 
 fn number(value: Option<u64>) -> String {

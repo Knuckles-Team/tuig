@@ -64,36 +64,47 @@ fn reply(artifacts: Option<&Value>) -> Result<Option<String>, &'static str> {
     if artifacts.len() > MAX_ARTIFACTS {
         return Err("Invalid task history reply");
     }
-    let mut reply = None;
     for (index, artifact) in artifacts.iter().enumerate() {
-        artifact
-            .get("artifactId")
-            .and_then(Value::as_str)
-            .filter(|id| !id.trim().is_empty() && id.len() <= 512)
-            .ok_or("Invalid task history reply")?;
-        let parts = artifact
-            .get("parts")
-            .and_then(Value::as_array)
-            .filter(|parts| !parts.is_empty() && parts.len() <= MAX_PARTS)
-            .ok_or("Invalid task history reply")?;
-        if index != 0 {
-            continue;
+        reply_artifact(artifact)?;
+        if index == 0 {
+            return Ok(Some(reply_text(reply_parts(artifact)?)?));
         }
-        let mut text = String::new();
-        for part in parts {
-            if part.get("kind").and_then(Value::as_str) != Some("text") {
-                return Err("Invalid task history reply");
-            }
-            let chunk = part
-                .get("text")
-                .and_then(Value::as_str)
-                .filter(|text| !text.is_empty() && text.len() <= MAX_PART_BYTES)
-                .ok_or("Invalid task history reply")?;
-            text.push_str(chunk);
-        }
-        reply = Some(literal(&text).chars().take(MAX_REPLY_CHARS).collect());
     }
-    Ok(reply)
+    Ok(None)
+}
+
+fn reply_artifact(artifact: &Value) -> Result<(), &'static str> {
+    artifact
+        .get("artifactId")
+        .and_then(Value::as_str)
+        .filter(|id| !id.trim().is_empty() && id.len() <= 512)
+        .ok_or("Invalid task history reply")?;
+    reply_parts(artifact)?;
+    Ok(())
+}
+
+fn reply_parts(artifact: &Value) -> Result<&Vec<Value>, &'static str> {
+    artifact
+        .get("parts")
+        .and_then(Value::as_array)
+        .filter(|parts| !parts.is_empty() && parts.len() <= MAX_PARTS)
+        .ok_or("Invalid task history reply")
+}
+
+fn reply_text(parts: &[Value]) -> Result<String, &'static str> {
+    let mut text = String::new();
+    for part in parts {
+        if part.get("kind").and_then(Value::as_str) != Some("text") {
+            return Err("Invalid task history reply");
+        }
+        let chunk = part
+            .get("text")
+            .and_then(Value::as_str)
+            .filter(|text| !text.is_empty() && text.len() <= MAX_PART_BYTES)
+            .ok_or("Invalid task history reply")?;
+        text.push_str(chunk);
+    }
+    Ok(literal(&text).chars().take(MAX_REPLY_CHARS).collect())
 }
 
 impl TaskPage {
@@ -129,13 +140,22 @@ impl TaskPage {
 impl ArboraClient {
     /// One bounded page of the caller's task history through `tasks/list`.
     pub async fn list_tasks(&self, cursor: Option<&str>) -> Result<TaskPage, &'static str> {
-        if cursor.is_some_and(|cursor| {
+        if !Self::valid_cursor(cursor) {
+            return Err("Invalid task history cursor");
+        }
+        let envelope = self.fetch_history_page(cursor).await?;
+        TaskPage::parse(Self::envelope_result(&envelope)?)
+    }
+
+    fn valid_cursor(cursor: Option<&str>) -> bool {
+        !cursor.is_some_and(|cursor| {
             cursor.trim().is_empty()
                 || cursor.chars().count() > MAX_CURSOR_CHARS
                 || cursor.chars().any(char::is_control)
-        }) {
-            return Err("Invalid task history cursor");
-        }
+        })
+    }
+
+    async fn fetch_history_page(&self, cursor: Option<&str>) -> Result<Value, &'static str> {
         let mut url = self.card_url.clone();
         url.set_path("/a2a");
         let mut response = self
@@ -153,6 +173,11 @@ impl ArboraClient {
         if !response.status().is_success() {
             return Err("Arbora task history read refused or unavailable");
         }
+        let bytes = Self::read_body(&mut response).await?;
+        serde_json::from_slice(&bytes).map_err(|_| "Invalid Arbora task history response")
+    }
+
+    async fn read_body(response: &mut reqwest::Response) -> Result<Vec<u8>, &'static str> {
         let mut bytes = Vec::new();
         while let Some(chunk) = response
             .chunk()
@@ -164,8 +189,10 @@ impl ArboraClient {
             }
             bytes.extend_from_slice(&chunk);
         }
-        let envelope: Value =
-            serde_json::from_slice(&bytes).map_err(|_| "Invalid Arbora task history response")?;
+        Ok(bytes)
+    }
+
+    fn envelope_result(envelope: &Value) -> Result<&Value, &'static str> {
         if envelope.get("jsonrpc").and_then(Value::as_str) != Some("2.0")
             || envelope.get("id").and_then(Value::as_str) != Some(REQUEST_ID)
         {
@@ -174,10 +201,9 @@ impl ArboraClient {
         if envelope.get("error").is_some() {
             return Err("Arbora task history read refused or unavailable");
         }
-        let result = envelope
+        envelope
             .get("result")
-            .ok_or("Invalid Arbora task history response")?;
-        TaskPage::parse(result)
+            .ok_or("Invalid Arbora task history response")
     }
 }
 

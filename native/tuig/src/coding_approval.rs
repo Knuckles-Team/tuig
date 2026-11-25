@@ -205,15 +205,12 @@ impl CodingApprovalState {
         if !self.connected {
             return Err(ApprovalError::GatewayUnavailable);
         }
-        if request.session_id != self.session_id || request.workspace_root != self.workspace_root {
-            return Err(ApprovalError::WrongSession);
-        }
-        if request.request_id.is_empty() || request.content.target().is_empty() {
-            return Err(ApprovalError::InvalidMetadata);
-        }
-        if !self.capabilities.contains(&request.content.capability()) {
-            return Err(ApprovalError::CapabilityNotGranted);
-        }
+        Self::validate_request(
+            &request,
+            &self.session_id,
+            &self.workspace_root,
+            &self.capabilities,
+        )?;
         if self
             .records
             .iter()
@@ -221,8 +218,30 @@ impl CodingApprovalState {
         {
             return Err(ApprovalError::AlreadyAnswered);
         }
+        self.pending_state(&request)
+    }
+
+    fn validate_request(
+        request: &ApprovalRequest,
+        session_id: &str,
+        workspace_root: &str,
+        capabilities: &BTreeSet<Capability>,
+    ) -> Result<(), ApprovalError> {
+        if request.session_id != session_id || request.workspace_root != workspace_root {
+            return Err(ApprovalError::WrongSession);
+        }
+        if request.request_id.is_empty() || request.content.target().is_empty() {
+            return Err(ApprovalError::InvalidMetadata);
+        }
+        if !capabilities.contains(&request.content.capability()) {
+            return Err(ApprovalError::CapabilityNotGranted);
+        }
+        Ok(())
+    }
+
+    fn pending_state(&mut self, request: &ApprovalRequest) -> Result<(), ApprovalError> {
         if let Some(pending) = &self.pending {
-            if pending == &request {
+            if pending == request {
                 return Ok(());
             }
             return Err(if pending.request_id == request.request_id {
@@ -231,7 +250,7 @@ impl CodingApprovalState {
                 ApprovalError::PendingRequestExists
             });
         }
-        self.pending = Some(request);
+        self.pending = Some(request.clone());
         Ok(())
     }
     pub fn preview(&self) -> Option<ApprovalPreview> {
