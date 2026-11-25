@@ -57,14 +57,29 @@ impl ArboraClient {
         task_id: &str,
         binding: Option<&TaskCorrelation>,
     ) -> Result<TaskSnapshot, ReadFailure> {
+        let mut response = self.send_task_get(task_id).await?;
+        if matches!(response.status().as_u16(), 502..=504) {
+            return Err(ReadFailure::Recoverable);
+        }
+        if !response.status().is_success() {
+            return Err(ReadFailure::Refused);
+        }
+        let bytes = read_task_bytes(&mut response).await?;
+        task_envelope(&bytes)?;
+        let mut snapshot =
+            parse_task_snapshot(task_id, "task-snapshot", &bytes).map_err(ReadFailure::Invalid)?;
+        settle_recovery_binding(&mut snapshot, binding)?;
+        Ok(snapshot)
+    }
+
+    async fn send_task_get(&self, task_id: &str) -> Result<reqwest::Response, ReadFailure> {
         let mut url = self.card_url.clone();
         url.set_path("/a2a");
         let mut params = serde_json::json!({"id": task_id});
         if self.committed_event_reads {
             params["includeCommittedEvent"] = serde_json::Value::Bool(true);
         }
-        let mut response = self
-            .http
+        self.http
             .post(url)
             .json(&serde_json::json!({
                 "jsonrpc": "2.0", "id": "task-snapshot",
@@ -72,51 +87,57 @@ impl ArboraClient {
             }))
             .send()
             .await
-            .map_err(|_| ReadFailure::Recoverable)?;
-        if matches!(response.status().as_u16(), 502..=504) {
-            return Err(ReadFailure::Recoverable);
-        }
-        if !response.status().is_success() {
-            return Err(ReadFailure::Refused);
-        }
-        let mut bytes = Vec::new();
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .map_err(|_| ReadFailure::Recoverable)?
-        {
-            if chunk.len() > MAX_RESPONSE_BYTES.saturating_sub(bytes.len()) {
-                return Err(ReadFailure::Invalid(
-                    "Arbora task snapshot exceeds size limit",
-                ));
-            }
-            bytes.extend_from_slice(&chunk);
-        }
-        let envelope: serde_json::Value = serde_json::from_slice(&bytes)
-            .map_err(|_| ReadFailure::Invalid("Invalid Arbora task response"))?;
-        if envelope.get("jsonrpc").and_then(|v| v.as_str()) != Some("2.0")
-            || envelope.get("id").and_then(|v| v.as_str()) != Some("task-snapshot")
-        {
-            return Err(ReadFailure::Invalid("Invalid Arbora task response"));
-        }
-        if envelope.get("error").is_some() {
-            return Err(ReadFailure::Refused);
-        }
-        let mut snapshot =
-            parse_task_snapshot(task_id, "task-snapshot", &bytes).map_err(ReadFailure::Invalid)?;
-        if let Some(binding) = binding {
-            if binding.run_id() != snapshot.correlation.run_id() {
-                return Err(ReadFailure::Invalid("Task correlation mismatch"));
-            }
-            binding
-                .validate_binding(&snapshot.correlation)
-                .map_err(ReadFailure::Invalid)?;
-            snapshot
-                .terminal_event
-                .validate_binding(binding)
-                .map_err(ReadFailure::Invalid)?;
-            snapshot.correlation = binding.clone();
-        }
-        Ok(snapshot)
+            .map_err(|_| ReadFailure::Recoverable)
     }
+}
+
+async fn read_task_bytes(response: &mut reqwest::Response) -> Result<Vec<u8>, ReadFailure> {
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|_| ReadFailure::Recoverable)?
+    {
+        if chunk.len() > MAX_RESPONSE_BYTES.saturating_sub(bytes.len()) {
+            return Err(ReadFailure::Invalid(
+                "Arbora task snapshot exceeds size limit",
+            ));
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
+}
+
+fn task_envelope(bytes: &[u8]) -> Result<serde_json::Value, ReadFailure> {
+    let envelope: serde_json::Value = serde_json::from_slice(bytes)
+        .map_err(|_| ReadFailure::Invalid("Invalid Arbora task response"))?;
+    if envelope.get("jsonrpc").and_then(|v| v.as_str()) != Some("2.0")
+        || envelope.get("id").and_then(|v| v.as_str()) != Some("task-snapshot")
+    {
+        return Err(ReadFailure::Invalid("Invalid Arbora task response"));
+    }
+    if envelope.get("error").is_some() {
+        return Err(ReadFailure::Refused);
+    }
+    Ok(envelope)
+}
+
+fn settle_recovery_binding(
+    snapshot: &mut TaskSnapshot,
+    binding: Option<&TaskCorrelation>,
+) -> Result<(), ReadFailure> {
+    if let Some(binding) = binding {
+        if binding.run_id() != snapshot.correlation.run_id() {
+            return Err(ReadFailure::Invalid("Task correlation mismatch"));
+        }
+        binding
+            .validate_binding(&snapshot.correlation)
+            .map_err(ReadFailure::Invalid)?;
+        snapshot
+            .terminal_event
+            .validate_binding(binding)
+            .map_err(ReadFailure::Invalid)?;
+        snapshot.correlation = binding.clone();
+    }
+    Ok(())
 }

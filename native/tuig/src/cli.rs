@@ -40,19 +40,11 @@ pub fn continuation(
     let mut index = 0;
     while index < args.len() {
         if args[index] == "--continue" {
-            if context.is_some() || task_selected {
-                return Err("--continue cannot be repeated or combined with AGENT_TASK_ID");
-            }
-            index += 1;
-            let value = args
-                .get(index)
-                .and_then(|value| value.to_str())
-                .ok_or("--continue requires a context identifier")?;
-            tuig_native::validate_context_id(value)?;
-            context = Some(value.to_owned());
+            context = Some(continue_value(args, index, context, task_selected)?);
+            index += 1; // the context value is consumed by continue_value
         } else {
             remaining.push(args[index].clone());
-            if args[index] == "--prompt" || args[index] == "--observe-task" {
+            if value_flag(&args[index]) {
                 index += 1;
                 if let Some(value) = args.get(index) {
                     remaining.push(value.clone());
@@ -61,10 +53,35 @@ pub fn continuation(
         }
         index += 1;
     }
-    if context.is_some() && !matches!(remaining.as_slice(), [flag, _] if flag == "--prompt") {
+    if context.is_some() && !prompt_only(&remaining) {
         return Err("--continue requires exactly --prompt TEXT and cannot observe a task");
     }
     Ok((context, remaining))
+}
+
+fn value_flag(arg: &OsString) -> bool {
+    arg == "--prompt" || arg == "--observe-task"
+}
+
+fn prompt_only(remaining: &[OsString]) -> bool {
+    matches!(remaining, [flag, _] if flag == "--prompt")
+}
+
+fn continue_value(
+    args: &[OsString],
+    index: usize,
+    context: Option<String>,
+    task_selected: bool,
+) -> Result<String, &'static str> {
+    if context.is_some() || task_selected {
+        return Err("--continue cannot be repeated or combined with AGENT_TASK_ID");
+    }
+    let value = args
+        .get(index + 1)
+        .and_then(|value| value.to_str())
+        .ok_or("--continue requires a context identifier")?;
+    tuig_native::validate_context_id(value)?;
+    Ok(value.to_owned())
 }
 
 #[cfg(test)]

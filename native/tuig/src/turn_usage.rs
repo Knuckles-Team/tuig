@@ -1,6 +1,6 @@
 //! Optional producer-reported turn counts, never inferred from reply text.
 use crate::correlation::TaskCorrelation;
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 const MAX_COUNT: u64 = 9_007_199_254_740_991;
 
@@ -33,31 +33,48 @@ impl TurnUsage {
 
     fn parse(task: &Value, binding: &TaskCorrelation) -> Option<Self> {
         let run = binding.run_id()?;
-        if task.get("id")?.as_str()? != binding.task_id()
-            || task.get("contextId")?.as_str()? != binding.context_id()
-            || task.pointer("/metadata/arbora/runId")?.as_str()? != run
-        {
+        if !Self::identity_matches(task, binding, run) {
             return None;
         }
         let usage = task.pointer("/metadata/arbora/usage")?.as_object()?;
-        if usage.get("scope")?.as_str()? != "turn"
-            || usage.get("taskId")?.as_str()? != binding.task_id()
-            || usage.get("contextId")?.as_str()? != binding.context_id()
-            || usage.get("runId")?.as_str()? != run
-        {
+        if !Self::usage_scoped(usage, binding, run) {
             return None;
         }
         let counts = usage.get("counts")?.as_object()?;
+        Some(Self::Counts(Self::decode_counts(counts)?))
+    }
+
+    fn identity_matches(task: &Value, binding: &TaskCorrelation, run: &str) -> bool {
+        task.get("id").and_then(|value| value.as_str()) == Some(binding.task_id())
+            && task.get("contextId").and_then(|value| value.as_str()) == Some(binding.context_id())
+            && task
+                .pointer("/metadata/arbora/runId")
+                .and_then(|value| value.as_str())
+                == Some(run)
+    }
+
+    fn usage_scoped(usage: &Map<String, Value>, binding: &TaskCorrelation, run: &str) -> bool {
+        usage.get("scope").and_then(|value| value.as_str()) == Some("turn")
+            && usage.get("taskId").and_then(|value| value.as_str()) == Some(binding.task_id())
+            && usage.get("contextId").and_then(|value| value.as_str()) == Some(binding.context_id())
+            && usage.get("runId").and_then(|value| value.as_str()) == Some(run)
+    }
+
+    fn decode_counts(counts: &Map<String, Value>) -> Option<[Option<u64>; 5]> {
         if counts.keys().any(|key| !KEYS.contains(&key.as_str())) {
             return None;
         }
         let mut values = [None; 5];
         for (index, key) in KEYS.iter().enumerate() {
             if let Some(value) = counts.get(*key) {
-                values[index] = Some(value.as_u64().filter(|count| *count <= MAX_COUNT)?);
+                values[index] = Some(Self::decode_count(value)?);
             }
         }
-        Some(Self::Counts(values))
+        Some(values)
+    }
+
+    fn decode_count(value: &Value) -> Option<u64> {
+        value.as_u64().filter(|count| *count <= MAX_COUNT)
     }
 
     pub fn text(&self) -> String {

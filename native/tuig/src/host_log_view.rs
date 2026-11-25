@@ -89,27 +89,31 @@ impl HostLogView {
                 self.expires = reader.expires_at_ms();
                 self.reader = Some(reader);
                 self.status = "Host logs | Escape: close";
-                if batch.gap {
-                    self.lines.push_back("[Log history gap]".to_owned());
-                }
-                for record in batch.records {
-                    let message = record.display();
-                    for line in message.lines() {
-                        self.lines.push_back(line.to_owned());
-                        while self.lines.len() > 1000 {
-                            self.lines.pop_front();
-                        }
-                    }
-                }
-                while self.lines.len() > 1000 {
-                    self.lines.pop_front();
-                }
+                self.append_batch(&batch);
             }
             Ok(Err(RETENTION_GAP)) => {
                 self.refuse();
                 self.status = RETENTION_GAP;
             }
             _ => self.refuse(),
+        }
+    }
+    fn append_batch(&mut self, batch: &LogBatch) {
+        if batch.gap {
+            self.lines.push_back("[Log history gap]".to_owned());
+        }
+        for record in &batch.records {
+            let message = record.display();
+            for line in message.lines() {
+                self.lines.push_back(line.to_owned());
+                self.trim_lines();
+            }
+        }
+        self.trim_lines();
+    }
+    fn trim_lines(&mut self) {
+        while self.lines.len() > 1000 {
+            self.lines.pop_front();
         }
     }
     pub fn key(&mut self, key: KeyCode) -> bool {

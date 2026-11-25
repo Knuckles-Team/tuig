@@ -48,16 +48,7 @@ impl Composer {
         match key.code {
             KeyCode::Esc => self.open = false,
             KeyCode::Char('j') if key.modifiers == KeyModifiers::CONTROL => self.paste("\n"),
-            KeyCode::Enter if key.modifiers.is_empty() => {
-                if self.text.trim().is_empty() || self.text.len() > self.limit() {
-                    self.notice = format!(
-                        "Prompt must contain text and be at most {} bytes",
-                        self.limit()
-                    );
-                } else {
-                    return Some(self.text.clone());
-                }
-            }
+            KeyCode::Enter if key.modifiers.is_empty() => return self.submit(),
             KeyCode::Backspace => {
                 self.text.pop();
                 self.notice.clear();
@@ -72,6 +63,17 @@ impl Composer {
             _ => {}
         }
         None
+    }
+
+    fn submit(&mut self) -> Option<String> {
+        if self.text.trim().is_empty() || self.text.len() > self.limit() {
+            self.notice = format!(
+                "Prompt must contain text and be at most {} bytes",
+                self.limit()
+            );
+            return None;
+        }
+        Some(self.text.clone())
     }
 
     pub fn draw(&self, frame: &mut Frame, style: Style, border: Style) {

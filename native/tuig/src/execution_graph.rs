@@ -69,176 +69,282 @@ fn key(value: &Value, run_id: &str) -> Result<String, ReadRefusal> {
     Ok(parts[2].clone())
 }
 
-impl ExecutionGraph {
-    pub fn decode(value: &Value, binding: &TaskCorrelation) -> Result<Self, ReadRefusal> {
-        let run_id = binding.run_id().ok_or(ReadRefusal::Unavailable)?;
-        for id in [run_id, binding.task_id(), binding.context_id()] {
-            identifier(&json!(id), 512)?;
-        }
-        exact(
-            value,
-            &[
-                "schema_version",
-                "availability",
-                "run_id",
-                "task_id",
-                "snapshot",
-            ],
-        )?;
-        if value["schema_version"].as_str() != Some(SCHEMA) {
-            return Err(ReadRefusal::Unavailable);
-        }
-        if value["run_id"].as_str() != Some(run_id)
-            || value["task_id"].as_str() != Some(binding.task_id())
-        {
-            return Err(ReadRefusal::WrongRun);
-        }
-        if value["availability"].as_str() != Some("available") {
-            return Err(ReadRefusal::Unavailable);
-        }
-        let snapshot = &value["snapshot"];
-        exact(
-            snapshot,
-            &[
-                "plan_digest",
-                "nodes",
-                "edges",
-                "topology_completeness",
-                "lifecycle_completeness",
-                "lifecycle_reason",
-                "covered_after",
-                "has_more",
-                "can_read_transcript",
-                "can_message_active",
-                "can_continue_completed",
-                "supports_spawned_children",
-            ],
-        )?;
-        if snapshot["topology_completeness"].as_str() != Some("complete")
-            || snapshot["lifecycle_completeness"].as_str() != Some("incomplete")
-            || snapshot["lifecycle_reason"].as_str() != Some("observed_prefix_only")
-            || [
-                "can_read_transcript",
-                "can_message_active",
-                "can_continue_completed",
-                "supports_spawned_children",
-            ]
-            .iter()
-            .any(|field| snapshot[field].as_bool() != Some(false))
-        {
-            return Err(ReadRefusal::Unavailable);
-        }
-        let plan_digest = identifier(&snapshot["plan_digest"], 512)?.to_owned();
-        let covered_after = snapshot["covered_after"]
+fn decode_header(value: &Value, binding: &TaskCorrelation) -> Result<String, ReadRefusal> {
+    let run_id = binding.run_id().ok_or(ReadRefusal::Unavailable)?;
+    for id in [run_id, binding.task_id(), binding.context_id()] {
+        identifier(&json!(id), 512)?;
+    }
+    exact(
+        value,
+        &[
+            "schema_version",
+            "availability",
+            "run_id",
+            "task_id",
+            "snapshot",
+        ],
+    )?;
+    if value["schema_version"].as_str() != Some(SCHEMA) {
+        return Err(ReadRefusal::Unavailable);
+    }
+    if value["run_id"].as_str() != Some(run_id)
+        || value["task_id"].as_str() != Some(binding.task_id())
+    {
+        return Err(ReadRefusal::WrongRun);
+    }
+    if value["availability"].as_str() != Some("available") {
+        return Err(ReadRefusal::Unavailable);
+    }
+    Ok(run_id.to_owned())
+}
+
+fn decode_snapshot_flags(snapshot: &Value) -> Result<(), ReadRefusal> {
+    exact(
+        snapshot,
+        &[
+            "plan_digest",
+            "nodes",
+            "edges",
+            "topology_completeness",
+            "lifecycle_completeness",
+            "lifecycle_reason",
+            "covered_after",
+            "has_more",
+            "can_read_transcript",
+            "can_message_active",
+            "can_continue_completed",
+            "supports_spawned_children",
+        ],
+    )?;
+    if snapshot["topology_completeness"].as_str() != Some("complete")
+        || snapshot["lifecycle_completeness"].as_str() != Some("incomplete")
+        || snapshot["lifecycle_reason"].as_str() != Some("observed_prefix_only")
+    {
+        return Err(ReadRefusal::Unavailable);
+    }
+    let unsupported = [
+        "can_read_transcript",
+        "can_message_active",
+        "can_continue_completed",
+        "supports_spawned_children",
+    ]
+    .iter()
+    .any(|field| snapshot[field].as_bool() != Some(false));
+    if unsupported {
+        return Err(ReadRefusal::Unavailable);
+    }
+    Ok(())
+}
+
+struct SnapshotMeta {
+    plan_digest: String,
+    covered_after: u64,
+    has_more: bool,
+    raw_nodes: Vec<Value>,
+    raw_edges: Vec<Value>,
+}
+
+fn decode_snapshot_meta(snapshot: &Value) -> Result<SnapshotMeta, ReadRefusal> {
+    Ok(SnapshotMeta {
+        plan_digest: identifier(&snapshot["plan_digest"], 512)?.to_owned(),
+        covered_after: snapshot["covered_after"]
             .as_u64()
             .filter(|n| *n <= MAX_EVENTS)
-            .ok_or(ReadRefusal::Unavailable)?;
-        let has_more = snapshot["has_more"]
+            .ok_or(ReadRefusal::Unavailable)?,
+        has_more: snapshot["has_more"]
             .as_bool()
-            .ok_or(ReadRefusal::Unavailable)?;
-        let raw_nodes = snapshot["nodes"]
+            .ok_or(ReadRefusal::Unavailable)?,
+        raw_nodes: snapshot["nodes"]
             .as_array()
             .filter(|nodes| !nodes.is_empty() && nodes.len() <= MAX_NODES)
-            .ok_or(ReadRefusal::Unavailable)?;
-        let raw_edges = snapshot["edges"]
+            .ok_or(ReadRefusal::Unavailable)?
+            .clone(),
+        raw_edges: snapshot["edges"]
             .as_array()
             .filter(|edges| edges.len() <= MAX_EDGES)
+            .ok_or(ReadRefusal::Unavailable)?
+            .clone(),
+    })
+}
+
+fn decode_nodes(
+    raw_nodes: &[Value],
+    run_id: &str,
+    covered_after: u64,
+    ids: &mut HashMap<String, usize>,
+    events: &mut HashSet<String>,
+    sequences: &mut HashSet<u64>,
+) -> Result<Vec<ExecutionStep>, ReadRefusal> {
+    let mut nodes = Vec::new();
+    for node in raw_nodes {
+        nodes.push(decode_node(
+            node,
+            run_id,
+            covered_after,
+            nodes.len(),
+            ids,
+            events,
+            sequences,
+        )?);
+    }
+    Ok(nodes)
+}
+
+fn decode_node_evidence(
+    evidence: &Value,
+    status: &str,
+    covered_after: u64,
+    events: &mut HashSet<String>,
+    sequences: &mut HashSet<u64>,
+) -> Result<Option<StepEvidence>, ReadRefusal> {
+    if evidence.is_null() {
+        if status != "unobserved" {
+            return Err(ReadRefusal::Unavailable);
+        }
+        return Ok(None);
+    }
+    exact(evidence, &["event_id", "sequence"])?;
+    let event_id = identifier(&evidence["event_id"], 1024)?.to_owned();
+    let sequence = evidence["sequence"]
+        .as_u64()
+        .filter(|n| *n > 0 && *n <= covered_after)
+        .ok_or(ReadRefusal::Unavailable)?;
+    if status == "unobserved" || !events.insert(event_id.clone()) || !sequences.insert(sequence) {
+        return Err(ReadRefusal::Unavailable);
+    }
+    Ok(Some(StepEvidence { event_id, sequence }))
+}
+
+fn decode_node(
+    node: &Value,
+    run_id: &str,
+    covered_after: u64,
+    position: usize,
+    ids: &mut HashMap<String, usize>,
+    events: &mut HashSet<String>,
+    sequences: &mut HashSet<u64>,
+) -> Result<ExecutionStep, ReadRefusal> {
+    exact(node, &["key", "kind", "task_id", "status", "evidence"])?;
+    let task_id = identifier(&node["task_id"], 512)?;
+    let status = node["status"].as_str().ok_or(ReadRefusal::Unavailable)?;
+    if !step_shape_ok(node, run_id, task_id, status) {
+        return Err(ReadRefusal::Unavailable);
+    }
+    if ids.insert(task_id.to_owned(), position).is_some() {
+        return Err(ReadRefusal::Unavailable);
+    }
+    let evidence =
+        decode_node_evidence(&node["evidence"], status, covered_after, events, sequences)?;
+    Ok(ExecutionStep {
+        key: step_key(node)?,
+        task_id: task_id.to_owned(),
+        status: status.to_owned(),
+        evidence,
+    })
+}
+
+fn step_key(node: &Value) -> Result<String, ReadRefusal> {
+    Ok(node["key"]
+        .as_str()
+        .ok_or(ReadRefusal::Unavailable)?
+        .to_owned())
+}
+
+fn step_shape_ok(node: &Value, run_id: &str, task_id: &str, status: &str) -> bool {
+    node["kind"].as_str() == Some("plan_step")
+        && key(&node["key"], run_id).is_ok_and(|decoded| decoded == task_id)
+        && step_status_ok(status)
+}
+
+fn step_status_ok(status: &str) -> bool {
+    matches!(
+        status,
+        "unobserved" | "running" | "completed" | "failed" | "cancelled" | "blocked"
+    )
+}
+
+/// Edges decoded from the graph metadata: (source, target) pairs plus
+/// per-node incoming counts.
+type DecodedEdges = (Vec<(usize, usize)>, Vec<usize>);
+
+fn decode_edges(
+    raw_edges: &[Value],
+    run_id: &str,
+    ids: &HashMap<String, usize>,
+    node_count: usize,
+) -> Result<DecodedEdges, ReadRefusal> {
+    let mut edges = Vec::new();
+    let mut unique = HashSet::new();
+    let mut incoming = vec![0; node_count];
+    for edge in raw_edges {
+        exact(edge, &["kind", "source", "target"])?;
+        let source = *ids
+            .get(&key(&edge["source"], run_id)?)
             .ok_or(ReadRefusal::Unavailable)?;
+        let target = *ids
+            .get(&key(&edge["target"], run_id)?)
+            .ok_or(ReadRefusal::Unavailable)?;
+        if edge["kind"].as_str() != Some("depends_on")
+            || source == target
+            || !unique.insert((source, target))
+        {
+            return Err(ReadRefusal::Unavailable);
+        }
+        incoming[target] += 1;
+        edges.push((source, target));
+    }
+    Ok((edges, incoming))
+}
+
+fn topology_is_acyclic(edges: &[(usize, usize)], incoming: Vec<usize>, node_count: usize) -> bool {
+    let mut incoming = incoming;
+    let mut ready: Vec<_> = incoming
+        .iter()
+        .enumerate()
+        .filter_map(|(i, count)| (*count == 0).then_some(i))
+        .collect();
+    let mut visited = 0;
+    while let Some(source) = ready.pop() {
+        visited += 1;
+        for &(_, target) in edges.iter().filter(|(from, _)| *from == source) {
+            incoming[target] -= 1;
+            if incoming[target] == 0 {
+                ready.push(target);
+            }
+        }
+    }
+    visited == node_count
+}
+
+impl ExecutionGraph {
+    pub fn decode(value: &Value, binding: &TaskCorrelation) -> Result<Self, ReadRefusal> {
+        let run_id = decode_header(value, binding)?;
+        let snapshot = &value["snapshot"];
+        decode_snapshot_flags(snapshot)?;
+        let meta = decode_snapshot_meta(snapshot)?;
         let mut ids = HashMap::new();
         let mut events = HashSet::new();
         let mut sequences = HashSet::new();
-        let mut nodes = Vec::new();
-        for node in raw_nodes {
-            exact(node, &["key", "kind", "task_id", "status", "evidence"])?;
-            let task_id = identifier(&node["task_id"], 512)?;
-            let status = node["status"].as_str().ok_or(ReadRefusal::Unavailable)?;
-            if node["kind"].as_str() != Some("plan_step")
-                || key(&node["key"], run_id)? != task_id
-                || ids.insert(task_id.to_owned(), nodes.len()).is_some()
-                || !matches!(
-                    status,
-                    "unobserved" | "running" | "completed" | "failed" | "cancelled" | "blocked"
-                )
-            {
-                return Err(ReadRefusal::Unavailable);
-            }
-            let evidence = if node["evidence"].is_null() {
-                if status != "unobserved" {
-                    return Err(ReadRefusal::Unavailable);
-                }
-                None
-            } else {
-                let evidence = &node["evidence"];
-                exact(evidence, &["event_id", "sequence"])?;
-                let event_id = identifier(&evidence["event_id"], 1024)?.to_owned();
-                let sequence = evidence["sequence"]
-                    .as_u64()
-                    .filter(|n| *n > 0 && *n <= covered_after)
-                    .ok_or(ReadRefusal::Unavailable)?;
-                if status == "unobserved"
-                    || !events.insert(event_id.clone())
-                    || !sequences.insert(sequence)
-                {
-                    return Err(ReadRefusal::Unavailable);
-                }
-                Some(StepEvidence { event_id, sequence })
-            };
-            nodes.push(ExecutionStep {
-                key: node["key"]
-                    .as_str()
-                    .ok_or(ReadRefusal::Unavailable)?
-                    .to_owned(),
-                task_id: task_id.to_owned(),
-                status: status.to_owned(),
-                evidence,
-            });
-        }
-        let mut edges = Vec::new();
-        let mut unique = HashSet::new();
-        let mut incoming = vec![0; nodes.len()];
-        for edge in raw_edges {
-            exact(edge, &["kind", "source", "target"])?;
-            let source = *ids
-                .get(&key(&edge["source"], run_id)?)
-                .ok_or(ReadRefusal::Unavailable)?;
-            let target = *ids
-                .get(&key(&edge["target"], run_id)?)
-                .ok_or(ReadRefusal::Unavailable)?;
-            if edge["kind"].as_str() != Some("depends_on")
-                || source == target
-                || !unique.insert((source, target))
-            {
-                return Err(ReadRefusal::Unavailable);
-            }
-            incoming[target] += 1;
-            edges.push((source, target));
-        }
-        let mut ready: Vec<_> = incoming
-            .iter()
-            .enumerate()
-            .filter_map(|(i, count)| (*count == 0).then_some(i))
-            .collect();
-        let mut visited = 0;
-        while let Some(source) = ready.pop() {
-            visited += 1;
-            for &(_, target) in edges.iter().filter(|(from, _)| *from == source) {
-                incoming[target] -= 1;
-                if incoming[target] == 0 {
-                    ready.push(target);
-                }
-            }
-        }
-        if visited != nodes.len() {
+        let nodes = decode_nodes(
+            &meta.raw_nodes,
+            &run_id,
+            meta.covered_after,
+            &mut ids,
+            &mut events,
+            &mut sequences,
+        )?;
+        let (edges, incoming) = decode_edges(&meta.raw_edges, &run_id, &ids, nodes.len())?;
+        if !topology_is_acyclic(&edges, incoming, nodes.len()) {
             return Err(ReadRefusal::Unavailable);
         }
         Ok(Self {
-            run_id: run_id.to_owned(),
+            run_id,
             task_id: binding.task_id().to_owned(),
-            plan_digest,
+            plan_digest: meta.plan_digest,
             nodes,
             edges,
-            covered_after,
-            has_more,
+            covered_after: meta.covered_after,
+            has_more: meta.has_more,
         })
     }
 
@@ -268,42 +374,28 @@ impl ExecutionGraph {
             ));
         }
         if let Some(node) = self.nodes.get(selected) {
-            let adjacent = |predecessors| {
-                let indices: Vec<_> = self
-                    .edges
-                    .iter()
-                    .filter_map(|&(from, to)| {
-                        if predecessors && to == selected {
-                            Some(from)
-                        } else if !predecessors && from == selected {
-                            Some(to)
-                        } else {
-                            None
-                        }
-                    })
-                    .map(|index| format!("{}: {}", index + 1, label(&self.nodes[index].task_id)))
-                    .collect();
-                if indices.is_empty() {
-                    "none".to_owned()
-                } else {
-                    indices.join(", ")
-                }
-            };
+            let evidence = node.evidence.as_ref().map_or_else(
+                || "Public event evidence: unavailable".to_owned(),
+                |e| {
+                    format!(
+                        "Public event evidence: {} (sequence {})",
+                        label(&e.event_id),
+                        e.sequence
+                    )
+                },
+            );
             lines.extend([
                 "".to_owned(),
                 "Selected step details".to_owned(),
-                format!("Predecessors (depends_on): {}", adjacent(true)),
-                format!("Dependents (depends_on): {}", adjacent(false)),
-                node.evidence.as_ref().map_or_else(
-                    || "Public event evidence: unavailable".to_owned(),
-                    |e| {
-                        format!(
-                            "Public event evidence: {} (sequence {})",
-                            label(&e.event_id),
-                            e.sequence
-                        )
-                    },
+                format!(
+                    "Predecessors (depends_on): {}",
+                    adjacent(self, selected, true)
                 ),
+                format!(
+                    "Dependents (depends_on): {}",
+                    adjacent(self, selected, false)
+                ),
+                evidence,
             ]);
         }
         lines.extend([
@@ -314,6 +406,28 @@ impl ExecutionGraph {
             "Continue completed child: unavailable".to_owned(),
         ]);
         lines.join("\n")
+    }
+}
+
+fn adjacent(graph: &ExecutionGraph, selected: usize, predecessors: bool) -> String {
+    let indices: Vec<_> = graph
+        .edges
+        .iter()
+        .filter_map(|&(from, to)| {
+            if predecessors && to == selected {
+                Some(from)
+            } else if !predecessors && from == selected {
+                Some(to)
+            } else {
+                None
+            }
+        })
+        .map(|index| format!("{}: {}", index + 1, label(&graph.nodes[index].task_id)))
+        .collect();
+    if indices.is_empty() {
+        "none".to_owned()
+    } else {
+        indices.join(", ")
     }
 }
 

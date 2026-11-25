@@ -140,29 +140,26 @@ impl ArboraClient {
             return Err("Plan expired; no effect was requested");
         }
         let id = plan_request_id()?;
-        let message = serde_json::json!({
-            "kind": "message",
-            "role": "user",
-            "messageId": id,
-            "contextId": binding.context_id(),
-            "parts": [{
-                "kind": "data",
-                "data": {
-                    "planConfirm": {
-                        "reference": plan.reference(),
-                        "subject": plan.subject(),
-                        "op": plan.op(),
-                        "paramsDigest": plan.params_digest(),
-                        "registryDigest": plan.registry_digest(),
-                        "lease": plan.lease(),
-                    }
-                }
-            }],
-        });
+        let mut response = self.send_confirmation(&id, binding, plan).await?;
+        let bytes = read_confirm_response(&mut response).await?;
+        let snapshot = parse_returned_task(&id, &bytes)
+            .map_err(|_| "Invalid or refused Arbora plan confirmation response")?;
+        if binding.validate_binding(&snapshot.correlation).is_err() {
+            return Err("Task correlation mismatch");
+        }
+        Ok(snapshot)
+    }
+
+    async fn send_confirmation(
+        &self,
+        id: &str,
+        binding: &TaskCorrelation,
+        plan: &PlanBinding,
+    ) -> Result<reqwest::Response, &'static str> {
+        let message = plan_confirm_message(id, binding, plan);
         let mut url = self.card_url.clone();
         url.set_path("/a2a");
-        let mut response = self
-            .http
+        self.http
             .post(url)
             .json(&serde_json::json!({
                 "jsonrpc": "2.0",
@@ -172,28 +169,52 @@ impl ArboraClient {
             }))
             .send()
             .await
-            .map_err(|_| "Plan confirmation request could not be sent")?;
-        if !response.status().is_success() {
-            return Err("Arbora plan confirmation refused or unavailable");
-        }
-        let mut bytes = Vec::new();
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .map_err(|_| "Arbora plan confirmation response interrupted")?
-        {
-            if chunk.len() > MAX_RESPONSE_BYTES.saturating_sub(bytes.len()) {
-                return Err("Arbora plan confirmation response exceeds size limit");
-            }
-            bytes.extend_from_slice(&chunk);
-        }
-        let snapshot = parse_returned_task(&id, &bytes)
-            .map_err(|_| "Invalid or refused Arbora plan confirmation response")?;
-        if binding.validate_binding(&snapshot.correlation).is_err() {
-            return Err("Task correlation mismatch");
-        }
-        Ok(snapshot)
+            .map_err(|_| "Plan confirmation request could not be sent")
     }
+}
+
+fn plan_confirm_message(
+    id: &str,
+    binding: &TaskCorrelation,
+    plan: &PlanBinding,
+) -> serde_json::Value {
+    serde_json::json!({
+        "kind": "message",
+        "role": "user",
+        "messageId": id,
+        "contextId": binding.context_id(),
+        "parts": [{
+            "kind": "data",
+            "data": {
+                "planConfirm": {
+                    "reference": plan.reference(),
+                    "subject": plan.subject(),
+                    "op": plan.op(),
+                    "paramsDigest": plan.params_digest(),
+                    "registryDigest": plan.registry_digest(),
+                    "lease": plan.lease(),
+                }
+            }
+        }],
+    })
+}
+
+async fn read_confirm_response(response: &mut reqwest::Response) -> Result<Vec<u8>, &'static str> {
+    if !response.status().is_success() {
+        return Err("Arbora plan confirmation refused or unavailable");
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|_| "Arbora plan confirmation response interrupted")?
+    {
+        if chunk.len() > MAX_RESPONSE_BYTES.saturating_sub(bytes.len()) {
+            return Err("Arbora plan confirmation response exceeds size limit");
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
 }
 
 #[cfg(test)]

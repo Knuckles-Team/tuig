@@ -110,76 +110,103 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> TextClient<R, W> {
                 return Err("Invalid ACP envelope");
             }
             if let Some(method) = value.get("method") {
-                self.notifications += 1;
-                if self.notifications > 16_384 {
-                    return Err("ACP notification limit");
-                }
-                if value.get("result").is_some() || value.get("error").is_some() {
-                    return Err("Invalid ACP method envelope");
-                }
-                if let Some(request_id) = value.get("id") {
-                    if !request_id.is_string() && request_id.as_i64().is_none() {
-                        return Err("Invalid ACP callback identifier");
-                    }
-                    // No advertised capabilities confer authority to perform host effects.
-                    if method == "session/request_permission" {
-                        self.send(json!({"jsonrpc":"2.0","id":request_id,"result":{"outcome":{"outcome":"cancelled"}}})).await?;
-                    } else {
-                        self.send(json!({"jsonrpc":"2.0","id":request_id,"error":{"code":-32601,"message":"Client capability unavailable"}})).await?;
-                    }
-                    return Err(
-                        "ACP requested an unsupported client capability; no permission granted",
-                    );
-                }
-                if method != "session/update" {
-                    return Err("Unsupported ACP notification");
-                }
-                let params = &value["params"];
-                if self.session.as_deref().is_none()
-                    || params["sessionId"].as_str() != self.session.as_deref()
-                {
-                    return Err("Foreign ACP session update");
-                }
-                let update = &params["update"];
-                if update["sessionUpdate"] != "agent_message_chunk"
-                    || update["content"]["type"] != "text"
-                {
-                    return Err("Unsupported ACP session update");
-                }
-                let text = update["content"]["text"]
-                    .as_str()
-                    .ok_or("Invalid ACP text update")?;
-                self.output_bytes = self
-                    .output_bytes
-                    .checked_add(text.len())
-                    .ok_or("ACP output limit")?;
-                if self.output_bytes > MAX_OUTPUT_BYTES {
-                    return Err("ACP output limit");
-                }
-                output(text).await?;
+                self.handle_notification(method, &value, &mut output)
+                    .await?;
                 continue;
             }
-            if value.get("id").and_then(Value::as_u64) != Some(id)
-                || value.get("result").is_some() == value.get("error").is_some()
-            {
-                return Err("Mismatched ACP response");
-            }
-            self.pending = None;
-            if value.get("error").is_some() {
-                return Err("Arbora ACP refused the request; no automatic retry");
-            }
-            let result = value
-                .get("result")
-                .filter(|result| result.is_object())
-                .ok_or("Invalid ACP result")?;
-            if self.turn == Some(id) {
-                self.turn_ready = matches!(
-                    result["stopReason"].as_str(),
-                    Some("end_turn" | "cancelled")
-                );
-            }
-            return Ok(result.clone());
+            return self.settle_result(id, &value);
         }
+    }
+
+    async fn handle_notification(
+        &mut self,
+        method: &Value,
+        value: &Value,
+        output: &mut impl AsyncFnMut(&str) -> Result<(), &'static str>,
+    ) -> Result<(), &'static str> {
+        self.notifications += 1;
+        if self.notifications > 16_384 {
+            return Err("ACP notification limit");
+        }
+        if value.get("result").is_some() || value.get("error").is_some() {
+            return Err("Invalid ACP method envelope");
+        }
+        if let Some(request_id) = value.get("id") {
+            self.refuse_capability(request_id, method).await?;
+            return Err("ACP requested an unsupported client capability; no permission granted");
+        }
+        if method != "session/update" {
+            return Err("Unsupported ACP notification");
+        }
+        self.accept_session_update(value, output).await
+    }
+
+    async fn refuse_capability(
+        &mut self,
+        request_id: &Value,
+        method: &Value,
+    ) -> Result<(), &'static str> {
+        if !request_id.is_string() && request_id.as_i64().is_none() {
+            return Err("Invalid ACP callback identifier");
+        }
+        // No advertised capabilities confer authority to perform host effects.
+        if method == "session/request_permission" {
+            self.send(json!({"jsonrpc":"2.0","id":request_id,"result":{"outcome":{"outcome":"cancelled"}}})).await?;
+        } else {
+            self.send(json!({"jsonrpc":"2.0","id":request_id,"error":{"code":-32601,"message":"Client capability unavailable"}})).await?;
+        }
+        Ok(())
+    }
+
+    async fn accept_session_update(
+        &mut self,
+        value: &Value,
+        output: &mut impl AsyncFnMut(&str) -> Result<(), &'static str>,
+    ) -> Result<(), &'static str> {
+        let params = &value["params"];
+        if self.session.as_deref().is_none()
+            || params["sessionId"].as_str() != self.session.as_deref()
+        {
+            return Err("Foreign ACP session update");
+        }
+        let update = &params["update"];
+        if update["sessionUpdate"] != "agent_message_chunk" || update["content"]["type"] != "text" {
+            return Err("Unsupported ACP session update");
+        }
+        let text = update["content"]["text"]
+            .as_str()
+            .ok_or("Invalid ACP text update")?;
+        self.output_bytes = self
+            .output_bytes
+            .checked_add(text.len())
+            .ok_or("ACP output limit")?;
+        if self.output_bytes > MAX_OUTPUT_BYTES {
+            return Err("ACP output limit");
+        }
+        output(text).await
+    }
+
+    fn settle_result(&mut self, id: u64, value: &Value) -> Result<Value, &'static str> {
+        if value.get("id").and_then(Value::as_u64) != Some(id)
+            || value.get("result").is_some() == value.get("error").is_some()
+        {
+            return Err("Mismatched ACP response");
+        }
+        self.pending = None;
+        if value.get("error").is_some() {
+            return Err("Arbora ACP refused the request; no automatic retry");
+        }
+        let result = value
+            .get("result")
+            .filter(|result| result.is_object())
+            .ok_or("Invalid ACP result")?;
+        if self.turn == Some(id) {
+            self.turn_ready = matches!(
+                result["stopReason"].as_str(),
+                Some("end_turn" | "cancelled")
+            );
+        }
+        Ok(result.clone())
     }
 
     pub async fn initialize(&mut self, cwd: &str) -> Result<(), &'static str> {

@@ -85,29 +85,41 @@ impl TerminalEvent {
             return Err(INVALID);
         }
         match value.get("status").and_then(Value::as_str) {
-            Some("unavailable") => {
-                let object = object(value, &["status", "reason"])?;
-                match object["reason"].as_str() {
-                    Some("legacy_unbound") => Ok(Self::LegacyUnavailable),
-                    Some("producer_unavailable") => Ok(Self::ProducerUnavailable),
-                    _ => Err(INVALID),
-                }
-            }
-            Some("available") => {
-                let event = CommittedTerminalEvent::parse(value)?;
-                let expected = match event.outcome.as_str() {
-                    "succeeded" => TaskState::Completed,
-                    "cancelled" => TaskState::Canceled,
-                    _ => TaskState::Failed,
-                };
-                if state != expected {
-                    return Err(INVALID);
-                }
-                let result = Self::Available(Box::new(event));
-                result.validate_binding(binding)?;
-                Ok(result)
-            }
+            Some("unavailable") => Self::unavailable(value),
+            Some("available") => Self::available(value, binding, state),
             _ => Err(INVALID),
+        }
+    }
+
+    fn unavailable(value: &Value) -> Result<Self, &'static str> {
+        let object = object(value, &["status", "reason"])?;
+        match object["reason"].as_str() {
+            Some("legacy_unbound") => Ok(Self::LegacyUnavailable),
+            Some("producer_unavailable") => Ok(Self::ProducerUnavailable),
+            _ => Err(INVALID),
+        }
+    }
+
+    fn available(
+        value: &Value,
+        binding: &TaskCorrelation,
+        state: TaskState,
+    ) -> Result<Self, &'static str> {
+        let event = CommittedTerminalEvent::parse(value)?;
+        let expected = Self::expected_state(&event.outcome);
+        if state != expected {
+            return Err(INVALID);
+        }
+        let result = Self::Available(Box::new(event));
+        result.validate_binding(binding)?;
+        Ok(result)
+    }
+
+    fn expected_state(outcome: &str) -> TaskState {
+        match outcome {
+            "succeeded" => TaskState::Completed,
+            "cancelled" => TaskState::Canceled,
+            _ => TaskState::Failed,
         }
     }
 
@@ -152,9 +164,53 @@ impl TerminalEvent {
     }
 }
 
+struct Identity {
+    tenant: String,
+    scope_tenant: String,
+    kind: String,
+    graph: String,
+    incarnation: String,
+    scope_digest: [u8; 32],
+    batch: String,
+    payload_digest: String,
+}
+
+struct Commit {
+    sequence: u64,
+    ordinal: u32,
+    run: String,
+    outcome: String,
+    result_ref: Option<String>,
+}
+
 impl CommittedTerminalEvent {
     fn parse(value: &Value) -> Result<Self, &'static str> {
-        let event = object(
+        let event = Self::event_object(value)?;
+        let scope = Self::scope_object(event)?;
+        if !Self::graph_ok(scope) {
+            return Err(INVALID);
+        }
+        let identity = Self::decode_identity(event, scope)?;
+        let commit = Self::decode_commit(event)?;
+        Ok(Self {
+            tenant: identity.tenant,
+            scope_tenant: identity.scope_tenant,
+            kind: identity.kind,
+            graph: identity.graph,
+            incarnation: identity.incarnation,
+            scope_digest: identity.scope_digest,
+            batch: identity.batch,
+            sequence: commit.sequence,
+            ordinal: commit.ordinal,
+            run: commit.run,
+            outcome: commit.outcome,
+            result_ref: commit.result_ref,
+            payload_digest: identity.payload_digest,
+        })
+    }
+
+    fn event_object(value: &Value) -> Result<&Map<String, Value>, &'static str> {
+        object(
             value,
             &[
                 "status",
@@ -169,26 +225,38 @@ impl CommittedTerminalEvent {
                 "result_ref",
                 "payload_digest",
             ],
-        )?;
-        let scope = object(
+        )
+    }
+
+    fn scope_object(event: &Map<String, Value>) -> Result<&Map<String, Value>, &'static str> {
+        object(
             &event["scope"],
             &["tenant", "scope", "incarnation_id", "identity_digest"],
-        )?;
+        )
+    }
+
+    fn graph_ok(scope: &Map<String, Value>) -> bool {
+        object(&scope["scope"], &["kind", "graph"]).is_ok_and(|graph| graph["kind"] == "graph")
+    }
+
+    fn decode_identity(
+        event: &Map<String, Value>,
+        scope: &Map<String, Value>,
+    ) -> Result<Identity, &'static str> {
         let graph = object(&scope["scope"], &["kind", "graph"])?;
-        let tenant = text(event, "tenant", 512)?;
-        let kind = text(event, "kind", 32)?;
-        if graph["kind"] != "graph"
-            || !matches!(
-                kind.as_str(),
-                "outcome" | "tool_call" | "degraded" | "reconciled"
-            )
-        {
-            return Err(INVALID);
-        }
-        let outcome = text(event, "outcome", 32)?;
-        if !matches!(outcome.as_str(), "succeeded" | "failed" | "cancelled") {
-            return Err(INVALID);
-        }
+        Ok(Identity {
+            tenant: text(event, "tenant", 512)?,
+            scope_tenant: text(scope, "tenant", 512)?,
+            kind: Self::kind(event)?,
+            graph: text(graph, "graph", 512)?,
+            incarnation: text(scope, "incarnation_id", 512)?,
+            scope_digest: scope_digest(&scope["identity_digest"])?,
+            batch: text(event, "batch_id", 512)?,
+            payload_digest: digest(event, "payload_digest")?,
+        })
+    }
+
+    fn decode_commit(event: &Map<String, Value>) -> Result<Commit, &'static str> {
         let sequence = event["commit_sequence"]
             .as_u64()
             .filter(|n| *n > 0)
@@ -202,20 +270,38 @@ impl CommittedTerminalEvent {
         } else {
             Some(text(event, "result_ref", 4096)?)
         };
-        Ok(Self {
-            tenant,
-            scope_tenant: text(scope, "tenant", 512)?,
-            kind,
-            graph: text(graph, "graph", 512)?,
-            incarnation: text(scope, "incarnation_id", 512)?,
-            scope_digest: scope_digest(&scope["identity_digest"])?,
-            batch: text(event, "batch_id", 512)?,
+        Ok(Commit {
             sequence,
             ordinal,
             run: text(event, "run_id", 512)?,
-            outcome,
+            outcome: Self::outcome(event)?,
             result_ref,
-            payload_digest: digest(event, "payload_digest")?,
         })
+    }
+
+    fn kind(event: &Map<String, Value>) -> Result<String, &'static str> {
+        let kind = text(event, "kind", 32)?;
+        Self::validate_kind(&kind)
+    }
+
+    fn validate_kind(kind: &str) -> Result<String, &'static str> {
+        if matches!(kind, "outcome" | "tool_call" | "degraded" | "reconciled") {
+            Ok(kind.to_owned())
+        } else {
+            Err(INVALID)
+        }
+    }
+
+    fn outcome(event: &Map<String, Value>) -> Result<String, &'static str> {
+        let outcome = text(event, "outcome", 32)?;
+        Self::validate_outcome(&outcome)
+    }
+
+    fn validate_outcome(outcome: &str) -> Result<String, &'static str> {
+        if matches!(outcome, "succeeded" | "failed" | "cancelled") {
+            Ok(outcome.to_owned())
+        } else {
+            Err(INVALID)
+        }
     }
 }

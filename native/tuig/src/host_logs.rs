@@ -9,6 +9,9 @@ pub const REFUSED: &str = "Host logs unavailable. Authenticated host access is r
 pub const RETENTION_GAP: &str =
     "Host log history gap: the resume position is no longer retained. Fresh admission is required.";
 
+/// The access fields of a validated host log launch.
+type AccessRecord = (String, String, String, String, String, u64, Vec<String>);
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HostLaunchReceipt {
     version: u64,
@@ -28,77 +31,93 @@ pub struct HostLaunchReceipt {
     source_generations: Vec<String>,
 }
 
-impl HostLaunchReceipt {
-    pub fn parse(value: &Value) -> Result<Self, &'static str> {
-        let object = value.as_object().ok_or(REFUSED)?;
-        let text = |key: &str, max: usize| -> Result<String, &'static str> {
-            let value = value[key].as_str().ok_or(REFUSED)?;
-            if value.is_empty() || value.len() > max || value.chars().any(char::is_control) {
+fn bounded_text(value: &Value, key: &str, max: usize) -> Result<String, &'static str> {
+    let value = value[key].as_str().ok_or(REFUSED)?;
+    if value.is_empty() || value.len() > max || value.chars().any(char::is_control) {
+        return Err(REFUSED);
+    }
+    Ok(value.to_owned())
+}
+
+fn parse_endpoint(value: &Value) -> Result<String, &'static str> {
+    let endpoint = bounded_text(value, "endpoint", 2048)?;
+    let endpoint_url = Url::parse(&endpoint).map_err(|_| REFUSED)?;
+    if !endpoint_shape_ok(&endpoint_url) {
+        return Err(REFUSED);
+    }
+    let mut endpoint_url = endpoint_url;
+    endpoint_url.set_path("/");
+    Ok(endpoint_url.to_string())
+}
+
+fn endpoint_shape_ok(url: &Url) -> bool {
+    matches!(url.scheme(), "http" | "https")
+        && url.host_str().is_some()
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.query().is_none()
+        && url.fragment().is_none()
+        && matches!(url.path(), "" | "/")
+        && url.port() != Some(0)
+}
+
+fn parse_source_generations(value: &Value) -> Result<Vec<String>, &'static str> {
+    let generations = value["source_generations"]
+        .as_array()
+        .filter(|values| (1..=32).contains(&values.len()))
+        .ok_or(REFUSED)?
+        .iter()
+        .map(|value| {
+            let generation = value.as_str().ok_or(REFUSED)?;
+            if generation.is_empty()
+                || generation.len() > 128
+                || matches!(generation, "*" | "latest" | "prior")
+                || generation
+                    .chars()
+                    .any(|character| character.is_whitespace() || character.is_control())
+            {
                 return Err(REFUSED);
             }
-            Ok(value.to_owned())
-        };
-        if object.len() != 15
-            || value["version"].as_u64() != Some(1)
-            || value["ready"].as_bool() != Some(true)
-            || value["web_logs"].as_bool() != Some(true)
-            || !matches!(value["interface_mode"].as_str(), Some("terminal" | "both"))
-        {
+            Ok(generation.to_owned())
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if generations
+        .iter()
+        .enumerate()
+        .any(|(index, generation)| generations[..index].contains(generation))
+    {
+        return Err(REFUSED);
+    }
+    Ok(generations)
+}
+
+impl HostLaunchReceipt {
+    pub fn parse(value: &Value) -> Result<Self, &'static str> {
+        if !Self::frame_ok(value) {
             return Err(REFUSED);
         }
-        let endpoint = text("endpoint", 2048)?;
-        let endpoint_url = Url::parse(&endpoint).map_err(|_| REFUSED)?;
-        if !matches!(endpoint_url.scheme(), "http" | "https")
-            || endpoint_url.host_str().is_none()
-            || !endpoint_url.username().is_empty()
-            || endpoint_url.password().is_some()
-            || endpoint_url.query().is_some()
-            || endpoint_url.fragment().is_some()
-            || !matches!(endpoint_url.path(), "" | "/")
-            || endpoint_url.port() == Some(0)
-        {
-            return Err(REFUSED);
-        }
-        let mut endpoint_url = endpoint_url;
-        endpoint_url.set_path("/");
-        let source_generations = value["source_generations"]
-            .as_array()
-            .filter(|values| (1..=32).contains(&values.len()))
-            .ok_or(REFUSED)?
-            .iter()
-            .map(|value| {
-                let generation = value.as_str().ok_or(REFUSED)?;
-                if generation.is_empty()
-                    || generation.len() > 128
-                    || matches!(generation, "*" | "latest" | "prior")
-                    || generation
-                        .chars()
-                        .any(|character| character.is_whitespace() || character.is_control())
-                {
-                    return Err(REFUSED);
-                }
-                Ok(generation.to_owned())
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        if source_generations
-            .iter()
-            .enumerate()
-            .any(|(index, generation)| source_generations[..index].contains(generation))
-        {
-            return Err(REFUSED);
-        }
+        let (log_ref, host_instance, endpoint, workspace) = Self::identity(value)?;
+        let (
+            tenant,
+            principal,
+            session_ref,
+            policy_revision,
+            grant_revision,
+            expires_at_ms,
+            source_generations,
+        ) = Self::access(value)?;
         let receipt = Self {
             version: 1,
-            log_ref: text("log_ref", 128)?,
-            host_instance: text("host_instance", 4096)?,
-            endpoint: endpoint_url.to_string(),
-            workspace: text("workspace", 4096)?,
-            tenant: text("tenant", 4096)?,
-            principal: text("principal", 4096)?,
-            session_ref: text("session_ref", 4096)?,
-            policy_revision: text("policy_revision", 4096)?,
-            grant_revision: text("grant_revision", 4096)?,
-            expires_at_ms: value["expires_at_ms"].as_u64().ok_or(REFUSED)?,
+            log_ref,
+            host_instance,
+            endpoint,
+            workspace,
+            tenant,
+            principal,
+            session_ref,
+            policy_revision,
+            grant_revision,
+            expires_at_ms,
             interface_mode: value["interface_mode"].as_str().unwrap().to_owned(),
             web_logs: true,
             ready: true,
@@ -108,6 +127,35 @@ impl HostLaunchReceipt {
             return Err(REFUSED);
         }
         Ok(receipt)
+    }
+
+    fn frame_ok(value: &Value) -> bool {
+        value.as_object().is_some_and(|object| object.len() == 15)
+            && value["version"].as_u64() == Some(1)
+            && value["ready"].as_bool() == Some(true)
+            && value["web_logs"].as_bool() == Some(true)
+            && matches!(value["interface_mode"].as_str(), Some("terminal" | "both"))
+    }
+
+    fn identity(value: &Value) -> Result<(String, String, String, String), &'static str> {
+        Ok((
+            bounded_text(value, "log_ref", 128)?,
+            bounded_text(value, "host_instance", 4096)?,
+            parse_endpoint(value)?,
+            bounded_text(value, "workspace", 4096)?,
+        ))
+    }
+
+    fn access(value: &Value) -> Result<AccessRecord, &'static str> {
+        Ok((
+            bounded_text(value, "tenant", 4096)?,
+            bounded_text(value, "principal", 4096)?,
+            bounded_text(value, "session_ref", 4096)?,
+            bounded_text(value, "policy_revision", 4096)?,
+            bounded_text(value, "grant_revision", 4096)?,
+            value["expires_at_ms"].as_u64().ok_or(REFUSED)?,
+            parse_source_generations(value)?,
+        ))
     }
 
     pub fn expires_at_ms(&self) -> u64 {
@@ -229,6 +277,27 @@ fn now_ms() -> u64 {
         .as_millis() as u64
 }
 
+async fn read_bounded(response: &mut reqwest::Response) -> Result<Vec<u8>, &'static str> {
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|_| REFUSED)? {
+        if bytes.len() + chunk.len() > 2 * 1024 * 1024 {
+            return Err(REFUSED);
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
+}
+
+fn decoded_response(status: reqwest::StatusCode, value: &Value) -> Result<(), &'static str> {
+    if status.as_u16() == 409 && value == &json!({"detail":"retention_gap"}) {
+        return Err(RETENTION_GAP);
+    }
+    if !status.is_success() {
+        return Err(REFUSED);
+    }
+    Ok(())
+}
+
 async fn post(client: &ArboraClient, path: &str, body: Value) -> Result<Value, &'static str> {
     if !client.authenticated {
         return Err(REFUSED);
@@ -244,20 +313,9 @@ async fn post(client: &ArboraClient, path: &str, body: Value) -> Result<Value, &
             .await
             .map_err(|_| REFUSED)?;
         let status = response.status();
-        let mut bytes = Vec::new();
-        while let Some(chunk) = response.chunk().await.map_err(|_| REFUSED)? {
-            if bytes.len() + chunk.len() > 2 * 1024 * 1024 {
-                return Err(REFUSED);
-            }
-            bytes.extend_from_slice(&chunk);
-        }
+        let bytes = read_bounded(&mut response).await?;
         let value: Value = serde_json::from_slice(&bytes).map_err(|_| REFUSED)?;
-        if status.as_u16() == 409 && value == json!({"detail":"retention_gap"}) {
-            return Err(RETENTION_GAP);
-        }
-        if !status.is_success() {
-            return Err(REFUSED);
-        }
+        decoded_response(status, &value)?;
         Ok(value)
     })
     .await
@@ -332,68 +390,91 @@ impl HostLogs {
     }
 }
 
+fn record_text(
+    row: &Value,
+    key: &str,
+    max: usize,
+    multiline: bool,
+) -> Result<String, &'static str> {
+    let value = row[key].as_str().ok_or(REFUSED)?;
+    if value.len() > max {
+        return Err(REFUSED);
+    }
+    Ok(value
+        .chars()
+        .filter(|c| !c.is_control() || (multiline && matches!(c, '\n' | '\t')))
+        .collect())
+}
+
+fn decode_record(row: &Value, source_generations: &[String]) -> Result<LogRecord, &'static str> {
+    if row.as_object().is_none_or(|o| o.len() != 6) {
+        return Err(REFUSED);
+    }
+    let host_instance = record_text(row, "host_instance", 128, false)?;
+    let severity = record_text(row, "severity", 32, false)?;
+    if !record_host_ok(&host_instance, &severity, source_generations) {
+        return Err(REFUSED);
+    }
+    let (sequence, timestamp) = record_numbers(row)?;
+    Ok(LogRecord {
+        host_instance,
+        sequence,
+        request: record_text(row, "request", 1024, false)?,
+        timestamp,
+        severity,
+        message: record_text(row, "message", 16384, true)?,
+    })
+}
+
+fn record_host_ok(host_instance: &str, severity: &str, source_generations: &[String]) -> bool {
+    !host_instance.is_empty()
+        && !severity.is_empty()
+        && source_generations.contains(&host_instance.to_owned())
+}
+
+fn record_numbers(row: &Value) -> Result<(u64, f64), &'static str> {
+    let sequence = row["sequence"]
+        .as_u64()
+        .filter(|n| *n > 0 && *n <= i64::MAX as u64)
+        .ok_or(REFUSED)?;
+    let timestamp = row["timestamp"]
+        .as_f64()
+        .filter(|n| n.is_finite() && *n >= 0.0)
+        .ok_or(REFUSED)?;
+    Ok((sequence, timestamp))
+}
+
 fn batch(
     value: &Value,
     source_generations: &[String],
 ) -> Result<(LogBatch, Option<String>), &'static str> {
-    if value
-        .as_object()
-        .is_none_or(|v| v.len() != 4 || !v.contains_key("cursor"))
-    {
-        return Err(REFUSED);
-    }
-    if value["version"].as_u64() != Some(2) {
+    if !batch_frame_ok(value) {
         return Err(REFUSED);
     }
     let rows = value["records"].as_array().ok_or(REFUSED)?;
     let gap = value["gap"].as_bool().ok_or(REFUSED)?;
-    let cursor = match &value["cursor"] {
-        Value::Null => None,
-        Value::String(s) if s.len() <= 1024 => Some(s.clone()),
-        _ => return Err(REFUSED),
-    };
+    let cursor = batch_cursor(&value["cursor"])?;
     if rows.len() > 128 {
         return Err(REFUSED);
     }
     let mut records = Vec::new();
     for row in rows {
-        if row.as_object().is_none_or(|o| o.len() != 6) {
-            return Err(REFUSED);
-        }
-        let text = |key: &str, max: usize, multiline: bool| -> Result<String, &'static str> {
-            let value = row[key].as_str().ok_or(REFUSED)?;
-            if value.len() > max {
-                return Err(REFUSED);
-            }
-            Ok(value
-                .chars()
-                .filter(|c| !c.is_control() || (multiline && matches!(c, '\n' | '\t')))
-                .collect())
-        };
-        let host_instance = text("host_instance", 128, false)?;
-        let severity = text("severity", 32, false)?;
-        let sequence = row["sequence"]
-            .as_u64()
-            .filter(|n| *n > 0 && *n <= i64::MAX as u64)
-            .ok_or(REFUSED)?;
-        let timestamp = row["timestamp"]
-            .as_f64()
-            .filter(|n| n.is_finite() && *n >= 0.0)
-            .ok_or(REFUSED)?;
-        if host_instance.is_empty()
-            || severity.is_empty()
-            || !source_generations.contains(&host_instance)
-        {
-            return Err(REFUSED);
-        }
-        records.push(LogRecord {
-            host_instance,
-            sequence,
-            request: text("request", 1024, false)?,
-            timestamp,
-            severity,
-            message: text("message", 16384, true)?,
-        });
+        records.push(decode_record(row, source_generations)?);
     }
     Ok((LogBatch { records, gap }, cursor))
+}
+
+fn batch_frame_ok(value: &Value) -> bool {
+    value
+        .as_object()
+        .is_some_and(|v| v.len() == 4 && v.contains_key("cursor"))
+        && value["version"].as_u64() == Some(2)
+}
+
+fn batch_cursor(cursor: &Value) -> Result<Option<String>, &'static str> {
+    match cursor {
+        Value::Null => Ok(None),
+        Value::String(s) if s.len() <= 1024 => Ok(Some(s.clone())),
+        _ => Err(REFUSED),
+    }
 }

@@ -158,7 +158,9 @@ impl PublicDetailsView {
             }
         }
     }
+}
 
+impl PublicDetailsView {
     fn toggle(&mut self, index: usize) {
         self.selected = Some(index);
         self.paused = false;
@@ -174,25 +176,47 @@ impl PublicDetailsView {
         if self.binding.is_none() || key.kind != KeyEventKind::Press {
             return false;
         }
+        if !self.key_step(key) {
+            return false;
+        }
+        self.reveal_selected = self.selected.is_some();
+        true
+    }
+
+    fn key_step(&mut self, key: KeyEvent) -> bool {
         match (key.code, key.modifiers) {
             (KeyCode::Tab, KeyModifiers::NONE) => {
-                self.selected = Some(self.selected.map_or(0, |index| (index + 1) % 2))
+                self.select_next();
+                true
             }
-            (KeyCode::BackTab, modifiers)
-                if modifiers.is_empty() || modifiers == KeyModifiers::SHIFT =>
-            {
-                self.selected = Some(self.selected.map_or(1, |index| (index + 1) % 2))
+            (KeyCode::BackTab, modifiers) if Self::modifiers_ok(modifiers) => {
+                self.select_previous();
+                true
             }
             (KeyCode::Enter | KeyCode::Char(' '), KeyModifiers::NONE)
                 if self.selected.is_some() =>
             {
-                self.toggle(self.selected.unwrap())
+                self.toggle(self.selected.unwrap());
+                true
             }
-            (KeyCode::Esc, KeyModifiers::NONE) if self.selected.is_some() => self.selected = None,
-            _ => return false,
+            (KeyCode::Esc, KeyModifiers::NONE) if self.selected.is_some() => {
+                self.selected = None;
+                true
+            }
+            _ => false,
         }
-        self.reveal_selected = self.selected.is_some();
-        true
+    }
+
+    fn modifiers_ok(modifiers: KeyModifiers) -> bool {
+        modifiers.is_empty() || modifiers == KeyModifiers::SHIFT
+    }
+
+    fn select_next(&mut self) {
+        self.selected = Some(self.selected.map_or(0, |index| (index + 1) % 2));
+    }
+
+    fn select_previous(&mut self) {
+        self.selected = Some(self.selected.map_or(1, |index| (index + 1) % 2));
     }
 
     pub fn take_focus_request(&mut self) -> Option<usize> {
@@ -237,48 +261,68 @@ impl PublicDetailsView {
             .enumerate()
         {
             headers[index] = Some(lines.len());
-            let indicator = if self.expanded[index] { "▼" } else { "▶" };
-            let focus = if self.selected == Some(index) {
-                style.add_modifier(Modifier::REVERSED)
-            } else {
-                style
-            };
-            lines.push(Line::from(Span::styled(
-                format!("{indicator} {label}"),
-                focus,
-            )));
-            if self.expanded[index] {
-                if self
-                    .binding
-                    .as_ref()
-                    .is_none_or(|binding| binding.run_id().is_none())
-                {
-                    lines.push(Line::from("Unavailable: no validated run binding."));
-                    continue;
-                }
-                let selected: Vec<_> = self
-                    .records
-                    .iter()
-                    .filter(|event| event.summary.is_some() == (index == 0))
-                    .collect();
-                if selected.is_empty() {
-                    lines.push(Line::from(if index == 0 {
-                        "Public model summary unavailable: no public summary in the retained event window."
-                    } else {
-                        "Execution trace unavailable."
-                    }));
-                } else {
-                    if index == 1 && self.records.front().is_some_and(|event| event.sequence > 1) {
-                        lines.push(Line::from("Earlier events omitted from this bounded view."));
-                    }
-                    for event in selected {
-                        lines.extend(event.text.lines().map(|line| Line::from(line.to_owned())));
-                        lines.push(Line::from(""));
-                    }
-                }
-            }
+            self.append_section(index, label, lines, style);
         }
         headers
+    }
+
+    fn append_section(
+        &self,
+        index: usize,
+        label: &str,
+        lines: &mut Vec<Line<'static>>,
+        style: Style,
+    ) {
+        let indicator = if self.expanded[index] { "▼" } else { "▶" };
+        let focus = if self.selected == Some(index) {
+            style.add_modifier(Modifier::REVERSED)
+        } else {
+            style
+        };
+        lines.push(Line::from(Span::styled(
+            format!("{indicator} {label}"),
+            focus,
+        )));
+        if !self.expanded[index] {
+            return;
+        }
+        if self
+            .binding
+            .as_ref()
+            .is_none_or(|binding| binding.run_id().is_none())
+        {
+            lines.push(Line::from("Unavailable: no validated run binding."));
+            return;
+        }
+        let selected: Vec<_> = self
+            .records
+            .iter()
+            .filter(|event| event.summary.is_some() == (index == 0))
+            .collect();
+        if selected.is_empty() {
+            lines.push(Line::from(if index == 0 {
+                "Public model summary unavailable: no public summary in the retained event window."
+            } else {
+                "Execution trace unavailable."
+            }));
+            return;
+        }
+        self.append_events(index, &selected, lines);
+    }
+
+    fn append_events(
+        &self,
+        index: usize,
+        selected: &[&PublicEvent],
+        lines: &mut Vec<Line<'static>>,
+    ) {
+        if index == 1 && self.records.front().is_some_and(|event| event.sequence > 1) {
+            lines.push(Line::from("Earlier events omitted from this bounded view."));
+        }
+        for event in selected {
+            lines.extend(event.text.lines().map(|line| Line::from(line.to_owned())));
+            lines.push(Line::from(""));
+        }
     }
 
     pub fn set_header_regions(&mut self, regions: [Option<Rect>; 2]) {

@@ -117,13 +117,19 @@ impl TaskCorrelation {
             run_id(value)?,
         )?;
         // Reject conflicting aliases instead of selecting the first identifier.
-        if value.get("id").is_some() && identifier(value, "id")? != self.task_id {
-            return Err("Task correlation mismatch");
-        }
-        if value.get("taskId").is_some() && identifier(value, "taskId")? != self.task_id {
+        if Self::alias_conflicts(self, value, "id")?
+            || Self::alias_conflicts(self, value, "taskId")?
+        {
             return Err("Task correlation mismatch");
         }
         Ok(())
+    }
+
+    fn alias_conflicts(&self, value: &Value, key: &str) -> Result<bool, &'static str> {
+        if value.get(key).is_none() {
+            return Ok(false);
+        }
+        Ok(identifier(value, key)? != self.task_id)
     }
 }
 

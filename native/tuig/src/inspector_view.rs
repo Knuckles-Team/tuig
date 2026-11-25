@@ -61,10 +61,7 @@ struct InspectorSearch {
 impl InspectorSearch {
     fn edit(&mut self, key: KeyEvent) {
         match (key.code, key.modifiers) {
-            (KeyCode::Enter, modifiers)
-                if self.matches > 0
-                    && (modifiers.is_empty() || modifiers == KeyModifiers::SHIFT) =>
-            {
+            (KeyCode::Enter, modifiers) if Self::enter_ok(self, modifiers) => {
                 let step = if modifiers == KeyModifiers::SHIFT {
                     self.matches - 1
                 } else {
@@ -76,17 +73,23 @@ impl InspectorSearch {
                 self.query.pop();
                 self.selected = 0;
             }
-            (KeyCode::Char(ch), modifiers)
-                if (modifiers.is_empty() || modifiers == KeyModifiers::SHIFT)
-                    && !ch.is_control()
-                    && self.query.chars().count() < 128 =>
-            {
+            (KeyCode::Char(ch), modifiers) if Self::char_ok(&self.query, modifiers, ch) => {
                 self.query.push(ch);
                 self.selected = 0;
             }
             _ => return,
         }
         self.reveal = true;
+    }
+
+    fn enter_ok(search: &Self, modifiers: KeyModifiers) -> bool {
+        search.matches > 0 && (modifiers.is_empty() || modifiers == KeyModifiers::SHIFT)
+    }
+
+    fn char_ok(query: &str, modifiers: KeyModifiers, ch: char) -> bool {
+        (modifiers.is_empty() || modifiers == KeyModifiers::SHIFT)
+            && !ch.is_control()
+            && query.chars().count() < 128
     }
 
     fn lines<'a>(&mut self, text: &'a str) -> (Vec<Line<'a>>, Option<usize>) {
@@ -241,26 +244,7 @@ impl InspectorView {
             let reply = request.await;
             self.graph_request = None;
             self.clear_read();
-            if let Ok((scope, result)) = reply
-                && self.open
-                && self.graph_mode
-                && scope.generation == self.generation
-                && self.binding.as_ref() == Some(&scope.binding)
-                && self
-                    .client
-                    .as_ref()
-                    .is_some_and(|client| Arc::ptr_eq(client, &scope.client))
-            {
-                match result {
-                    Ok(graph) => {
-                        self.spatial = Some(SpatialGraph::new(&graph));
-                        self.graph = Some(graph);
-                        self.selected_step = Some(0);
-                        self.reveal_step = true;
-                    }
-                    Err(error) => self.graph_refusal = Some(error),
-                }
-            }
+            self.apply_graph_reply(reply);
             return;
         }
         let result = match self.request.as_mut() {
@@ -273,12 +257,55 @@ impl InspectorView {
         }
     }
 
+    fn apply_graph_reply(
+        &mut self,
+        reply: Result<(GraphScope, Result<ExecutionGraph, ReadRefusal>), tokio::task::JoinError>,
+    ) {
+        if let Ok((scope, result)) = reply
+            && self.graph_applies(&scope)
+        {
+            match result {
+                Ok(graph) => {
+                    self.spatial = Some(SpatialGraph::new(&graph));
+                    self.graph = Some(graph);
+                    self.selected_step = Some(0);
+                    self.reveal_step = true;
+                }
+                Err(error) => self.graph_refusal = Some(error),
+            }
+        }
+    }
+
+    fn graph_applies(&self, scope: &GraphScope) -> bool {
+        self.open
+            && self.graph_mode
+            && scope.generation == self.generation
+            && self.binding.as_ref() == Some(&scope.binding)
+            && self
+                .client
+                .as_ref()
+                .is_some_and(|client| Arc::ptr_eq(client, &scope.client))
+    }
+}
+
+impl InspectorView {
     /// An open read-only inspector consumes keys, including effect shortcuts.
     pub fn key(&mut self, key: KeyCode, client: Arc<ArboraClient>) -> bool {
         if !self.open {
             return false;
         }
         self.client_updated(&client);
+        if self.graph_shortcut(key, client) {
+            return true;
+        }
+        if self.spatial_shortcut(key) {
+            return true;
+        }
+        self.viewport.handle(key);
+        true
+    }
+
+    fn graph_shortcut(&mut self, key: KeyCode, client: Arc<ArboraClient>) -> bool {
         match key {
             KeyCode::Esc => self.close(),
             KeyCode::Char('g') => {
@@ -288,36 +315,38 @@ impl InspectorView {
                 self.viewport = Viewport::default();
                 self.refresh(client);
             }
-            KeyCode::Char('v') if self.graph_mode => {
-                self.spatial_mode = !self.spatial_mode;
-            }
-            KeyCode::Tab | KeyCode::BackTab if self.graph_mode => {
-                if let Some(graph) = &self.graph {
-                    let step = if key == KeyCode::BackTab {
-                        graph.nodes.len() - 1
-                    } else {
-                        1
-                    };
-                    self.selected_step =
-                        Some((self.selected_step.unwrap_or(0) + step) % graph.nodes.len());
-                    self.reveal_step = true;
-                    if let Some(spatial) = &mut self.spatial {
-                        spatial.focus_selected();
-                    }
-                }
-            }
+            KeyCode::Char('v') if self.graph_mode => self.spatial_mode = !self.spatial_mode,
+            KeyCode::Tab | KeyCode::BackTab if self.graph_mode => self.cycle_step(key),
             KeyCode::Char('c') => self.abort(),
             KeyCode::Char('r') | KeyCode::Char('i') => self.refresh(client),
-            _ if self.spatial_mode && self.spatial_visible && self.search.is_none() => {
-                if let Some(spatial) = &mut self.spatial {
-                    spatial.key(key);
-                }
-            }
-            _ => {
-                self.viewport.handle(key);
-            }
+            _ => return false,
         }
         true
+    }
+
+    fn cycle_step(&mut self, key: KeyCode) {
+        if let Some(graph) = &self.graph {
+            let step = if key == KeyCode::BackTab {
+                graph.nodes.len() - 1
+            } else {
+                1
+            };
+            self.selected_step = Some((self.selected_step.unwrap_or(0) + step) % graph.nodes.len());
+            self.reveal_step = true;
+            if let Some(spatial) = &mut self.spatial {
+                spatial.focus_selected();
+            }
+        }
+    }
+
+    fn spatial_shortcut(&mut self, key: KeyCode) -> bool {
+        if self.spatial_mode && self.spatial_visible && self.search.is_none() {
+            if let Some(spatial) = &mut self.spatial {
+                spatial.key(key);
+            }
+            return true;
+        }
+        false
     }
 
     /// Search owns typed characters before the application's action shortcuts.
@@ -344,37 +373,8 @@ impl InspectorView {
     }
 
     fn text(&mut self, now: Instant) -> String {
-        let body = if self.graph_mode {
-            match &self.graph {
-                Some(graph) => graph.text(self.selected_step.unwrap_or(0)),
-                None if self
-                    .binding
-                    .as_ref()
-                    .and_then(TaskCorrelation::run_id)
-                    .is_none() =>
-                {
-                    "Execution graph unavailable: no validated run binding".to_owned()
-                }
-                None if self.graph_refusal == Some(ReadRefusal::Denied) => {
-                    "Execution graph denied; protected data cleared".to_owned()
-                }
-                None => "Execution graph unavailable".to_owned(),
-            }
-        } else {
-            match &mut self.inspector {
-                Some(inspector) => inspector.text(now),
-                None => "Run inspector unavailable: no validated run binding".to_owned(),
-            }
-        };
-        let state = if self.pending() {
-            if self.graph_mode {
-                "Reading execution graph...\n"
-            } else {
-                "Reading run...\n"
-            }
-        } else {
-            ""
-        };
+        let body = self.body(now);
+        let state = self.pending_state();
         let map_help = if self.graph_mode {
             "v: map / full list and details\n"
         } else {
@@ -385,23 +385,70 @@ impl InspectorView {
         )
     }
 
+    fn body(&mut self, now: Instant) -> String {
+        if self.graph_mode {
+            self.graph_body()
+        } else {
+            match &mut self.inspector {
+                Some(inspector) => inspector.text(now),
+                None => "Run inspector unavailable: no validated run binding".to_owned(),
+            }
+        }
+    }
+
+    fn graph_body(&self) -> String {
+        match &self.graph {
+            Some(graph) => graph.text(self.selected_step.unwrap_or(0)),
+            None if self
+                .binding
+                .as_ref()
+                .and_then(TaskCorrelation::run_id)
+                .is_none() =>
+            {
+                "Execution graph unavailable: no validated run binding".to_owned()
+            }
+            None if self.graph_refusal == Some(ReadRefusal::Denied) => {
+                "Execution graph denied; protected data cleared".to_owned()
+            }
+            None => "Execution graph unavailable".to_owned(),
+        }
+    }
+
+    fn pending_state(&self) -> &'static str {
+        if self.pending() {
+            if self.graph_mode {
+                "Reading execution graph...\n"
+            } else {
+                "Reading run...\n"
+            }
+        } else {
+            ""
+        }
+    }
+
     pub fn mouse(&mut self, event: MouseEvent) -> bool {
         if self.open && self.spatial_mode && self.spatial_visible && self.search.is_none() {
-            if event.modifiers.is_empty()
-                && let Some(spatial) = &mut self.spatial
-            {
-                match event.kind {
-                    crossterm::event::MouseEventKind::ScrollUp => spatial.key(KeyCode::Up),
-                    crossterm::event::MouseEventKind::ScrollDown => spatial.key(KeyCode::Down),
-                    _ => return false,
-                }
-                return true;
-            }
-            return false;
+            return self.spatial_mouse(event);
         }
         self.open && self.viewport.mouse(event)
     }
 
+    fn spatial_mouse(&mut self, event: MouseEvent) -> bool {
+        if event.modifiers.is_empty()
+            && let Some(spatial) = &mut self.spatial
+        {
+            match event.kind {
+                crossterm::event::MouseEventKind::ScrollUp => spatial.key(KeyCode::Up),
+                crossterm::event::MouseEventKind::ScrollDown => spatial.key(KeyCode::Down),
+                _ => return false,
+            }
+            return true;
+        }
+        false
+    }
+}
+
+impl InspectorView {
     fn draw_spatial(&mut self, frame: &mut Frame, style: Style, border_style: Style) {
         let (Some(graph), Some(spatial)) = (&self.graph, &mut self.spatial) else {
             return;
@@ -427,27 +474,18 @@ Arrows: pan | Tab/Shift+Tab: select | Home: focus | F6: theme",
         );
         let map_area = Rect::new(inner.x, inner.y + 4, inner.width, inner.height - 9);
         spatial.draw(frame, map_area, graph, selected, style);
-        let adjacent = |incoming| {
-            let nodes: Vec<_> = graph
-                .edges
-                .iter()
-                .filter_map(|&(from, to)| {
-                    if incoming && to == selected {
-                        Some(from + 1)
-                    } else if !incoming && from == selected {
-                        Some(to + 1)
-                    } else {
-                        None
-                    }
-                })
-                .map(|i| i.to_string())
-                .collect();
-            if nodes.is_empty() {
-                "none".to_owned()
-            } else {
-                nodes.join(", ")
-            }
-        };
+        self.draw_spatial_details(frame, style, inner, graph, selected, map_area.bottom());
+    }
+
+    fn draw_spatial_details(
+        &self,
+        frame: &mut Frame,
+        style: Style,
+        inner: Rect,
+        graph: &ExecutionGraph,
+        selected: usize,
+        details_y: u16,
+    ) {
         let node = &graph.nodes[selected];
         let details = format!(
             "Selected {}: {} [{}]
@@ -458,8 +496,8 @@ r / i: refresh | c: cancel local read | q: quit",
             selected + 1,
             label(&node.task_id),
             node.status,
-            adjacent(true),
-            adjacent(false),
+            Self::adjacent(graph, selected, true),
+            Self::adjacent(graph, selected, false),
             node.evidence.as_ref().map_or_else(
                 || "unavailable".to_owned(),
                 |e| format!("{} (sequence {})", label(&e.event_id), e.sequence)
@@ -467,18 +505,34 @@ r / i: refresh | c: cancel local read | q: quit",
         );
         frame.render_widget(
             Paragraph::new(details).style(style),
-            Rect::new(inner.x, map_area.bottom(), inner.width, 5),
+            Rect::new(inner.x, details_y, inner.width, 5),
         );
     }
 
+    fn adjacent(graph: &ExecutionGraph, selected: usize, incoming: bool) -> String {
+        let nodes: Vec<_> = graph
+            .edges
+            .iter()
+            .filter_map(|&(from, to)| {
+                if incoming && to == selected {
+                    Some(from + 1)
+                } else if !incoming && from == selected {
+                    Some(to + 1)
+                } else {
+                    None
+                }
+            })
+            .map(|i| i.to_string())
+            .collect();
+        if nodes.is_empty() {
+            "none".to_owned()
+        } else {
+            nodes.join(", ")
+        }
+    }
+
     pub fn draw(&mut self, frame: &mut Frame, style: Style, border_style: Style, now: Instant) {
-        self.spatial_visible = self.spatial_mode
-            && self.graph_mode
-            && self.graph.is_some()
-            && self.spatial.is_some()
-            && self.search.is_none()
-            && frame.area().width >= 72
-            && frame.area().height >= 20;
+        self.spatial_visible = self.spatial_area_ok(frame.area());
         if self.spatial_visible {
             self.draw_spatial(frame, style, border_style);
             return;
@@ -492,23 +546,7 @@ r / i: refresh | c: cancel local read | q: quit",
         } else {
             None
         };
-        let (lines, selected) = match &mut self.search {
-            Some(search) => search.lines(&text),
-            None => (
-                text.lines()
-                    .enumerate()
-                    .map(|(index, line)| {
-                        let line = Line::from(line);
-                        if Some(index) == graph_row {
-                            line.style(Style::new().add_modifier(Modifier::REVERSED))
-                        } else {
-                            line
-                        }
-                    })
-                    .collect(),
-                None,
-            ),
-        };
+        let (lines, selected) = self.search_lines(&text, graph_row);
         let title = self
             .search
             .as_ref()
@@ -525,6 +563,49 @@ r / i: refresh | c: cancel local read | q: quit",
             .wrap(Wrap { trim: false });
         self.viewport
             .measure(paragraph.line_count(inner.width), inner.height);
+        self.reveal_search(inner.width, &lines, selected);
+        self.reveal_step_row(inner.width, &lines, graph_row);
+        frame.render_widget(
+            paragraph.scroll((self.viewport.offset(), 0)).block(block),
+            frame.area(),
+        );
+    }
+
+    fn spatial_area_ok(&self, area: Rect) -> bool {
+        self.spatial_mode
+            && self.graph_mode
+            && self.graph.is_some()
+            && self.spatial.is_some()
+            && self.search.is_none()
+            && area.width >= 72
+            && area.height >= 20
+    }
+
+    fn search_lines<'a>(
+        &mut self,
+        text: &'a str,
+        graph_row: Option<usize>,
+    ) -> (Vec<Line<'a>>, Option<usize>) {
+        match &mut self.search {
+            Some(search) => search.lines(text),
+            None => (
+                text.lines()
+                    .enumerate()
+                    .map(|(index, line)| {
+                        let line = Line::from(line);
+                        if Some(index) == graph_row {
+                            line.style(Style::new().add_modifier(Modifier::REVERSED))
+                        } else {
+                            line
+                        }
+                    })
+                    .collect(),
+                None,
+            ),
+        }
+    }
+
+    fn reveal_search(&mut self, width: u16, lines: &[Line<'_>], selected: Option<usize>) {
         if let Some(search) = &mut self.search
             && std::mem::take(&mut search.reveal)
             && let Some(index) = selected
@@ -534,23 +615,22 @@ r / i: refresh | c: cancel local read | q: quit",
             } else {
                 Paragraph::new(lines[..index].to_vec())
                     .wrap(Wrap { trim: false })
-                    .line_count(inner.width)
+                    .line_count(width)
             };
             self.viewport.reveal(row, 1);
         }
+    }
+
+    fn reveal_step_row(&mut self, width: u16, lines: &[Line<'_>], graph_row: Option<usize>) {
         if std::mem::take(&mut self.reveal_step)
             && self.search.is_none()
             && let Some(index) = graph_row
         {
             let row = Paragraph::new(lines[..index].to_vec())
                 .wrap(Wrap { trim: false })
-                .line_count(inner.width);
+                .line_count(width);
             self.viewport.reveal(row, 1);
         }
-        frame.render_widget(
-            paragraph.scroll((self.viewport.offset(), 0)).block(block),
-            frame.area(),
-        );
     }
 }
 

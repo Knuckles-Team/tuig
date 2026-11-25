@@ -1,5 +1,8 @@
 use std::{io::Write, time::Duration};
-use tuig_native::{ArboraClient, TaskSnapshot, TaskSubmission, correlation::TaskState};
+use tuig_native::{
+    ArboraClient, TaskSnapshot, TaskSubmission,
+    correlation::{TaskCorrelation, TaskState},
+};
 
 fn result(state: TaskState) -> Result<bool, &'static str> {
     match state {
@@ -18,37 +21,65 @@ pub async fn run(
     task_id: Option<&str>,
     submission: Option<&TaskSubmission>,
 ) -> Result<(), &'static str> {
-    let observe = async {
-        let mut snapshot: TaskSnapshot = match submission {
-            Some(submission) => client.submit_task(submission).await?,
-            None => {
-                client
-                    .get_task(task_id.ok_or("Missing task identifier")?)
-                    .await?
-            }
-        };
-        let binding = snapshot.correlation.clone();
-        let mut previous = String::new();
-        loop {
-            binding.validate_binding(&snapshot.correlation)?;
-            snapshot.terminal_event.validate_binding(&binding)?;
-            let display = super::snapshot_status(&snapshot);
-            if display != previous {
-                let mut output = std::io::stdout().lock();
-                writeln!(output, "{display}").map_err(|_| "Cannot write task output")?;
-                output.flush().map_err(|_| "Cannot flush task output")?;
-                previous = display;
-            }
-            if result(snapshot.state)? {
-                return Ok(());
-            }
-            tokio::time::sleep(Duration::from_millis(500)).await;
-            snapshot = client.refresh_task(&binding).await?;
+    tokio::time::timeout(
+        Duration::from_secs(4 * 60 * 60),
+        observe(client, task_id, submission),
+    )
+    .await
+    .map_err(|_| "Observation timed out. No remote task was canceled.")?
+}
+
+async fn observe(
+    client: &ArboraClient,
+    task_id: Option<&str>,
+    submission: Option<&TaskSubmission>,
+) -> Result<(), &'static str> {
+    let mut snapshot = start(client, task_id, submission).await?;
+    let binding = snapshot.correlation.clone();
+    let mut previous = String::new();
+    loop {
+        check_binding(&snapshot, &binding)?;
+        if finished(&mut previous, &snapshot)? {
+            return Ok(());
         }
-    };
-    tokio::time::timeout(Duration::from_secs(4 * 60 * 60), observe)
-        .await
-        .map_err(|_| "Observation timed out. No remote task was canceled.")?
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        snapshot = client.refresh_task(&binding).await?;
+    }
+}
+
+async fn start(
+    client: &ArboraClient,
+    task_id: Option<&str>,
+    submission: Option<&TaskSubmission>,
+) -> Result<TaskSnapshot, &'static str> {
+    match submission {
+        Some(submission) => client.submit_task(submission).await,
+        None => {
+            client
+                .get_task(task_id.ok_or("Missing task identifier")?)
+                .await
+        }
+    }
+}
+
+fn check_binding(snapshot: &TaskSnapshot, binding: &TaskCorrelation) -> Result<(), &'static str> {
+    binding.validate_binding(&snapshot.correlation)?;
+    snapshot.terminal_event.validate_binding(binding)
+}
+
+fn finished(previous: &mut String, snapshot: &TaskSnapshot) -> Result<bool, &'static str> {
+    let display = super::snapshot_status(snapshot);
+    if display != *previous {
+        write_status(&display)?;
+        *previous = display;
+    }
+    result(snapshot.state)
+}
+
+fn write_status(display: &str) -> Result<(), &'static str> {
+    let mut output = std::io::stdout().lock();
+    writeln!(output, "{display}").map_err(|_| "Cannot write task output")?;
+    output.flush().map_err(|_| "Cannot flush task output")
 }
 
 #[cfg(test)]
