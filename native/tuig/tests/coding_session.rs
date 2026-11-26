@@ -890,3 +890,90 @@ mod router {
         assert!(!root.path().join("made").exists());
     }
 }
+
+mod malformed {
+    use serde_json::{Value, json};
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, split};
+    use tuig_native::acp::TextClient;
+
+    /// The turn outcome when the agent answers the prompt with one odd frame.
+    async fn turn_with(frame: Value) -> Result<Value, &'static str> {
+        let (local, remote) = tokio::io::duplex(8192);
+        let (reader, writer) = split(local);
+        let (remote_reader, mut remote_writer) = split(remote);
+        tokio::spawn(async move {
+            let mut lines = BufReader::new(remote_reader).lines();
+            for (id, result) in [
+                (1, json!({"protocolVersion":1})),
+                (2, json!({"sessionId":"s"})),
+            ] {
+                lines.next_line().await.unwrap().unwrap();
+                let reply = json!({"jsonrpc":"2.0","id":id,"result":result});
+                remote_writer
+                    .write_all(format!("{reply}\n").as_bytes())
+                    .await
+                    .unwrap();
+            }
+            lines.next_line().await.unwrap().unwrap();
+            remote_writer
+                .write_all(format!("{frame}\n").as_bytes())
+                .await
+                .unwrap();
+            let _ = lines.next_line().await;
+        });
+        let mut client = TextClient::new(reader, writer).with_host_capabilities();
+        client.initialize("/workspace").await.unwrap();
+        client.prompt("go").await.unwrap();
+        client.response(3, async |_| Ok(())).await
+    }
+
+    fn update(content: Value) -> Value {
+        json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"agent_message_chunk","content":content}}})
+    }
+
+    // spec: TUIG-RUNTIME-R011.8
+    #[tokio::test]
+    async fn malformed_agent_frames_fail_closed() {
+        let cases = [
+            (
+                json!({"jsonrpc":"2.0","method":"session/update","result":{}}),
+                "Invalid ACP method envelope",
+            ),
+            (
+                json!({"jsonrpc":"2.0","id":1.5,"method":"fs/read_text_file","params":{}}),
+                "Invalid ACP callback identifier",
+            ),
+            (
+                json!({"jsonrpc":"2.0","method":"session/other","params":{}}),
+                "Unsupported ACP notification",
+            ),
+            (
+                update(json!({"type":"image","text":"x"})),
+                "Unsupported ACP session update",
+            ),
+            (
+                update(json!({"type":"text","text":7})),
+                "Invalid ACP text update",
+            ),
+            (
+                json!({"jsonrpc":"1.0","id":3,"result":{}}),
+                "Invalid ACP envelope",
+            ),
+            (
+                json!({"jsonrpc":"2.0","id":3,"result":{},"error":{}}),
+                "Mismatched ACP response",
+            ),
+            (
+                json!({"jsonrpc":"2.0","id":3,"error":{"code":1,"message":"x"}}),
+                "Arbora ACP refused the request; no automatic retry",
+            ),
+            (
+                json!({"jsonrpc":"2.0","id":3,"result":[]}),
+                "Invalid ACP result",
+            ),
+        ];
+        for (frame, expected) in cases {
+            assert_eq!(turn_with(frame).await, Err(expected));
+        }
+    }
+}
