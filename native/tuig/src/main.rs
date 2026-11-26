@@ -30,9 +30,9 @@ mod public_details_view;
 mod session;
 mod spatial_graph;
 mod task_history_view;
-use presentation::{ThemeSelection, Viewport};
 #[cfg(test)]
 use presentation::presentation_style;
+use presentation::{ThemeSelection, Viewport};
 use public_details_view::PublicDetailsView;
 use task_history_view::TaskHistoryView;
 
@@ -746,7 +746,15 @@ async fn launch_app(args: Vec<OsString>) -> Result<(), &'static str> {
     let (token, auth_mode) = caller_credential()?;
     let (observe, task_id, submission) = launch_targets(&args, token.is_some(), auth_mode)?;
     let client = remote_client(&endpoint, token.as_deref(), auth_mode)?;
-    launch(client, headless, observe, task_id, submission, theme_selection()).await
+    launch(
+        client,
+        headless,
+        observe,
+        task_id,
+        submission,
+        theme_selection(),
+    )
+    .await
 }
 
 fn report_error(error: &str) {
