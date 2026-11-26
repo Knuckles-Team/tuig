@@ -530,6 +530,73 @@ mod stream {
         Capability::ALL.into()
     }
 
+    /// Run one turn in which the agent sends a single callback request and
+    /// report the frame the client wrote back and the turn's outcome.
+    async fn callback_turn(
+        method: &'static str,
+        host_answers: bool,
+    ) -> (Value, Result<Value, &'static str>, bool) {
+        let (local, remote) = tokio::io::duplex(8192);
+        let (reader, writer) = split(local);
+        let (remote_reader, mut remote_writer) = split(remote);
+        let agent = tokio::spawn(async move {
+            let mut lines = BufReader::new(remote_reader).lines();
+            for (id, result) in [
+                (1, json!({"protocolVersion":1})),
+                (2, json!({"sessionId":"s"})),
+            ] {
+                lines.next_line().await.unwrap().unwrap();
+                let frame = json!({"jsonrpc":"2.0","id":id,"result":result});
+                remote_writer
+                    .write_all(format!("{frame}\n").as_bytes())
+                    .await
+                    .unwrap();
+            }
+            lines.next_line().await.unwrap().unwrap();
+            let request = json!({"jsonrpc":"2.0","id":9,"method":method,"params":{}});
+            remote_writer
+                .write_all(format!("{request}\n").as_bytes())
+                .await
+                .unwrap();
+            serde_json::from_str::<Value>(&lines.next_line().await.unwrap().unwrap()).unwrap()
+        });
+        let mut client = TextClient::new(reader, writer).with_host_capabilities();
+        assert_eq!(client.session_id(), None);
+        client.initialize("/workspace").await.unwrap();
+        assert_eq!(client.session_id(), Some("s"));
+        client.prompt("go").await.unwrap();
+        let mut consulted = false;
+        let outcome = client
+            .response_hosted(
+                3,
+                async |_| Ok(()),
+                async |request: HostRequest| {
+                    consulted = true;
+                    host_answers.then(|| json!({"jsonrpc":"2.0","id":request.id,"result":{}}))
+                },
+            )
+            .await;
+        (agent.await.unwrap(), outcome, consulted)
+    }
+
+    // spec: TUIG-RUNTIME-R011.8
+    #[tokio::test]
+    async fn an_unanswered_capability_request_keeps_the_refusal() {
+        let (frame, outcome, consulted) = callback_turn("fs/read_text_file", false).await;
+        assert!(consulted);
+        assert_eq!(frame["error"]["code"], -32601);
+        assert!(outcome.is_err());
+    }
+
+    // spec: TUIG-RUNTIME-R011.8
+    #[tokio::test]
+    async fn a_method_outside_the_closed_set_never_reaches_the_host() {
+        let (frame, outcome, consulted) = callback_turn("session/request_permission", true).await;
+        assert!(!consulted);
+        assert_eq!(frame["result"]["outcome"]["outcome"], "cancelled");
+        assert!(outcome.is_err());
+    }
+
     // spec: TUIG-RUNTIME-R011.8
     #[tokio::test]
     async fn test_requests_reach_view_from_client_stream() {
