@@ -14,3 +14,12 @@ one-shot text through an internal Arbora child process. It advertises no host to
 permission grants. Its scripted and SDK transport checks are not proof of
 a released Arbora/AU pairing or durable history. These remain
 open under `TUIG-RUNTIME-R011.14` and the existing coding-session requirements.
+
+The tracked native source is measured against structural quality limits —
+function size, branch complexity, nesting depth, module size and method count
+per type — by self-contained source tests in addition to the Clippy gate. The
+limits are recorded in the test module's threshold table, and each test
+rejects a counterexample that violates the same criterion. Remaining
+requirements are tracked in the canonical
+[requirements](../specs/terminal-runtime/requirements.md); their state is
+computed, not written.
