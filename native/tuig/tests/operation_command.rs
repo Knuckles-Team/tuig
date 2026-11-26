@@ -1,11 +1,10 @@
 //! TUIG-RUNTIME-R001.1: the /op command and the versioned registry dispatch.
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpListener,
-};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tuig_native::{ArboraClient, operation_command::OperationCommand};
+
+mod support;
 
 const DIGEST: &str = "fixture-digest-0001";
 
@@ -27,8 +26,7 @@ async fn serve(
     tokio::task::JoinHandle<()>,
     Arc<Mutex<Vec<Captured>>>,
 ) {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let url = format!("http://{}", listener.local_addr().unwrap());
+    let (listener, url) = support::bind().await;
     let captured = Arc::new(Mutex::new(Vec::new()));
     let server_captured = captured.clone();
     let server = tokio::spawn(async move {

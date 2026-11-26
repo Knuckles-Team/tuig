@@ -10,6 +10,7 @@ use tokio::task::JoinHandle;
 use tuig_native::{
     ArboraClient,
     app::run_host_terminal,
+    clock::Clock,
     host_logs::{HostLogReader, HostLogs, LogBatch, REFUSED, RETENTION_GAP},
 };
 
@@ -23,6 +24,7 @@ pub struct HostLogView {
     lines: VecDeque<String>,
     status: &'static str,
     expires: u64,
+    clock: Clock,
     viewport: Viewport,
 }
 
@@ -35,6 +37,7 @@ impl HostLogView {
     }
     pub fn open(&mut self, client: Arc<ArboraClient>) {
         self.close();
+        self.clock = client.clock().clone();
         self.open = true;
         self.status = "Reading authenticated host logs...";
         self.request = Some(tokio::spawn(async move {
@@ -59,7 +62,7 @@ impl HostLogView {
         if !self.open {
             return;
         }
-        if self.expires != 0 && !HostLogs::unexpired(self.expires) {
+        if self.expires != 0 && !HostLogs::unexpired(self.expires, self.clock.now_ms()) {
             self.refuse();
             return;
         }
@@ -133,7 +136,7 @@ impl HostLogView {
     }
 
     pub fn draw(&mut self, frame: &mut Frame, style: Style, border_style: Style) {
-        if self.expires != 0 && !HostLogs::unexpired(self.expires) {
+        if self.expires != 0 && !HostLogs::unexpired(self.expires, self.clock.now_ms()) {
             self.refuse();
         }
         let text = format!(
@@ -176,6 +179,7 @@ mod tests {
             lines: VecDeque::new(),
             status: "Reading",
             expires: 0,
+            clock: Clock::system(),
             viewport: Viewport::default(),
         };
         view.lines.push_back("protected".to_owned());
@@ -200,6 +204,7 @@ mod tests {
             lines: VecDeque::new(),
             status: "Reading",
             expires: 0,
+            clock: Clock::from_fn(|| 2),
             viewport: Viewport::default(),
         };
         view.lines.push_back("protected".to_owned());

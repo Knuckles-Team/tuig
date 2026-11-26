@@ -10,15 +10,14 @@ use serde_json::{Value, json};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpListener,
-};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tuig_native::{
     ArboraClient, AuthMode,
     correlation::TaskState,
     task_history::{HistoryStatus, TaskHistory},
 };
+
+mod support;
 
 /// The cursor whose read the fixture holds until the test releases it.
 const GATED: &str = "opaque/gate";
@@ -55,8 +54,7 @@ async fn history_server(
     serve: Serve,
     gate: Option<Arc<AtomicBool>>,
 ) -> (String, Arc<Mutex<Vec<Option<String>>>>) {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let url = format!("http://{}", listener.local_addr().unwrap());
+    let (listener, url) = support::bind().await;
     let calls = Arc::new(Mutex::new(Vec::new()));
     let server_calls = calls.clone();
     let _server = tokio::spawn(async move {

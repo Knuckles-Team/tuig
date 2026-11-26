@@ -1,19 +1,12 @@
 use super::*;
 use ratatui::{Terminal, backend::TestBackend};
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpListener,
-};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 // spec: TUIG-RUNTIME-R002.1.3.2.1
 #[tokio::test]
 async fn http_denial_clears_rendered_snapshot_and_disarms_cancel_until_refresh() {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let client = ArboraClient::new(
-        &format!("http://{}", listener.local_addr().unwrap()),
-        Some("fixture-token"),
-    )
-    .unwrap();
+    let (listener, url) = crate::support::bind().await;
+    let client = ArboraClient::new(&url, Some("fixture-token")).unwrap();
     let server = tokio::spawn(async move {
         for status in [200, 403, 200] {
             let (mut socket, _) = listener.accept().await.unwrap();

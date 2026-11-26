@@ -3,7 +3,7 @@ mod support;
 use serde_json::{Value, json};
 use std::time::Duration;
 use support::{serve, serve_raw};
-use tokio::{io::AsyncReadExt, net::TcpListener};
+use tokio::io::AsyncReadExt;
 use tuig_native::{
     ArboraClient,
     correlation::{TaskCorrelation, TaskState},
@@ -195,7 +195,7 @@ async fn interrupted_cancellation_is_not_acknowledged_or_retried() {
 // spec: TUIG-RUNTIME-R002.1.5
 #[tokio::test]
 async fn timed_out_cancellation_has_unknown_outcome_without_retry() {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let (listener, _) = support::bind().await;
     let client =
         ArboraClient::new(&format!("http://{}", listener.local_addr().unwrap()), None).unwrap();
     let server = async {

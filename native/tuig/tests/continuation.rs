@@ -1,13 +1,12 @@
 use serde_json::{Value, json};
 use std::time::Duration;
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpListener,
-};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tuig_native::{
     ArboraClient, CONTINUATION_EXTENSION, CONTINUATION_UNAVAILABLE, SUBMISSION_UNKNOWN,
     TaskSubmission,
 };
+
+mod support;
 
 fn context() -> String {
     format!("a2a-context-{}", "a".repeat(64))
@@ -36,8 +35,7 @@ async fn server(
     card: Value,
     reply: Option<(Value, Option<String>)>,
 ) -> (String, tokio::task::JoinHandle<Vec<String>>) {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let (listener, endpoint) = support::bind().await;
     let handle = tokio::spawn(async move {
         let mut responses = vec![(card, None)];
         responses.extend(reply);

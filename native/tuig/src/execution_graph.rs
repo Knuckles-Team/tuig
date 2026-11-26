@@ -317,6 +317,7 @@ fn topology_is_acyclic(edges: &[(usize, usize)], incoming: Vec<usize>, node_coun
 }
 
 impl ExecutionGraph {
+    // contract: TUIG-RUNTIME-R010.11
     pub fn decode(value: &Value, binding: &TaskCorrelation) -> Result<Self, ReadRefusal> {
         let run_id = decode_header(value, binding)?;
         let snapshot = &value["snapshot"];
@@ -348,6 +349,7 @@ impl ExecutionGraph {
         })
     }
 
+    // contract: TUIG-RUNTIME-R010.11
     pub fn text(&self, selected: usize) -> String {
         let mut lines = vec![
             "Flat execution DAG (read-only)".to_owned(),

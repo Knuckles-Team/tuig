@@ -9,7 +9,6 @@
 
 use crate::{ArboraClient, AuthMode, TaskCorrelation, TaskSnapshot, parse_returned_task};
 use serde_json::Value;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAX_PLAN_FIELD: usize = 512;
 const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
@@ -24,14 +23,6 @@ pub struct PlanBinding {
     registry_digest: String,
     expires_at_ms: u64,
     lease: String,
-}
-
-/// Milliseconds since the Unix epoch; a broken clock fails closed.
-pub fn now_ms() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis())
-        .unwrap_or(u128::MAX)
 }
 
 impl PlanBinding {
@@ -86,8 +77,8 @@ impl PlanBinding {
     }
 
     /// A plan whose expiry is reached or past can no longer be resumed.
-    pub fn is_expired(&self, now: u128) -> bool {
-        u128::from(self.expires_at_ms) <= now
+    pub fn is_expired(&self, now: u64) -> bool {
+        self.expires_at_ms <= now
     }
 }
 
@@ -136,7 +127,7 @@ impl ArboraClient {
         if !self.authenticated && self.auth_mode != AuthMode::None {
             return Err("Plan confirmation requires a caller credential");
         }
-        if plan.is_expired(now_ms()) {
+        if plan.is_expired(self.now_ms()) {
             return Err("Plan expired; no effect was requested");
         }
         let id = plan_request_id()?;
@@ -251,8 +242,8 @@ mod tests {
         assert_eq!(plan.registry_digest(), "b".repeat(64));
         assert_eq!(plan.lease(), "c".repeat(64));
         assert!(!plan.is_expired(0));
-        assert!(plan.is_expired(u128::from(plan.expires_at_ms())));
-        assert!(plan.is_expired(u128::from(plan.expires_at_ms()) + 1));
+        assert!(plan.is_expired(plan.expires_at_ms()));
+        assert!(plan.is_expired(plan.expires_at_ms() + 1));
 
         let mut plan_value = issued("plan-1");
         plan_value["metadata"]["arbora"]["plan"]["paramsDigest"] = json!("a".repeat(63));

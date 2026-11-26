@@ -1,13 +1,11 @@
 use serde_json::{Value, json};
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpListener,
-};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tuig_native::{ArboraClient, correlation::TaskState};
 
+mod support;
+
 async fn serve(status: &str, body: &str) -> (String, tokio::task::JoinHandle<String>) {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let url = format!("http://{}", listener.local_addr().unwrap());
+    let (listener, url) = support::bind().await;
     let response = format!(
         "HTTP/1.1 {status}\r\nLocation: /redirected\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
@@ -99,7 +97,7 @@ async fn reads_task_snapshot_over_authenticated_json_rpc() {
 // spec: TUIG-RUNTIME-R002.1.2
 #[tokio::test]
 async fn rejects_invalid_task_ids_before_network() {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let (listener, _) = support::bind().await;
     let client =
         ArboraClient::new(&format!("http://{}", listener.local_addr().unwrap()), None).unwrap();
     for task_id in ["", " ", "task\n1", &"x".repeat(81)] {

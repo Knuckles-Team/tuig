@@ -6,15 +6,15 @@
 use serde_json::{Value, json};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpListener,
-};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tuig_native::{
-    ArboraClient, AuthMode, TaskSubmission,
-    correlation::TaskState,
-    plan_confirm::{PlanBinding, now_ms},
+    ArboraClient, AuthMode, TaskSubmission, clock::Clock, correlation::TaskState,
+    plan_confirm::PlanBinding,
 };
+
+mod support;
+
+const NOW_MS: u64 = 1_800_000_000_000;
 
 const TASK_ID: &str = "task-1";
 const CONTEXT_ID: &str = "context-1";
@@ -34,7 +34,7 @@ struct PlanIssue {
     params_digest: &'static str,
     registry_digest: &'static str,
     lease: &'static str,
-    expires_at_ms: u128,
+    expires_at_ms: u64,
 }
 
 impl PlanIssue {
@@ -59,7 +59,7 @@ fn fresh_issue() -> PlanIssue {
         params_digest: PARAMS_DIGEST,
         registry_digest: REGISTRY_DIGEST,
         lease: LEASE,
-        expires_at_ms: now_ms() + 3_600_000,
+        expires_at_ms: NOW_MS + 3_600_000,
     }
 }
 
@@ -109,7 +109,7 @@ fn confirm_response(
         && confirm.get("registryDigest").and_then(Value::as_str) == Some(issued.registry_digest);
     let lease_fresh = confirm.get("lease").and_then(Value::as_str) == Some(issued.lease)
         && !consumed.swap(true, Ordering::SeqCst);
-    let unexpired = issued.expires_at_ms > now_ms();
+    let unexpired = issued.expires_at_ms > NOW_MS;
     if fields_match && lease_fresh && unexpired && context_id == Some(CONTEXT_ID) {
         effect.store(true, Ordering::SeqCst);
         task_response(&request_id, "completed", &issued.plan_value())
@@ -134,8 +134,7 @@ async fn plan_server(
     Arc<AtomicBool>,
     Arc<AtomicBool>,
 ) {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let url = format!("http://{}", listener.local_addr().unwrap());
+    let (listener, url) = support::bind().await;
     let captured = Arc::new(Mutex::new(Vec::new()));
     let effect = Arc::new(AtomicBool::new(false));
     let consumed = Arc::new(AtomicBool::new(false));
@@ -221,7 +220,9 @@ async fn client_and_snapshot(
     url: &str,
     captured: &Arc<Mutex<Vec<Captured>>>,
 ) -> (ArboraClient, tuig_native::TaskSnapshot) {
-    let client = ArboraClient::with_auth_mode(url, None, AuthMode::None).unwrap();
+    let client = ArboraClient::with_auth_mode(url, None, AuthMode::None)
+        .unwrap()
+        .with_clock(Clock::from_fn(|| NOW_MS));
     let submission = TaskSubmission::new("inspect the issued plan").unwrap();
     let snapshot = client.submit_task(&submission).await.unwrap();
     assert_eq!(snapshot.state, TaskState::Working);
@@ -251,7 +252,7 @@ async fn confirm_resumes_exactly_the_issued_plan() {
     assert_eq!(plan.params_digest(), PARAMS_DIGEST);
     assert_eq!(plan.registry_digest(), REGISTRY_DIGEST);
     assert_eq!(plan.lease(), LEASE);
-    assert!(!plan.is_expired(now_ms()));
+    assert!(!plan.is_expired(NOW_MS));
 
     let resumed = client
         .confirm_plan(&snapshot.correlation, &plan)
@@ -331,11 +332,11 @@ async fn tampered_confirmations_are_refused_before_any_effect() {
 #[tokio::test]
 async fn an_expired_plan_is_refused_before_any_effect_request() {
     let mut issued = fresh_issue();
-    issued.expires_at_ms = now_ms() - 1;
+    issued.expires_at_ms = NOW_MS - 1;
     let (url, captured, effect, consumed) = plan_server(issued.clone(), issued.plan_value()).await;
     let (client, snapshot) = client_and_snapshot(&url, &captured).await;
     let plan = snapshot.plan.unwrap();
-    assert!(plan.is_expired(now_ms()));
+    assert!(plan.is_expired(NOW_MS));
     assert!(
         client
             .confirm_plan(&snapshot.correlation, &plan)

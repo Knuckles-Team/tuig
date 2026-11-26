@@ -3,7 +3,6 @@ mod support;
 use serde_json::{Value, json};
 use std::time::Duration;
 use support::{serve, serve_raw};
-use tokio::net::TcpListener;
 use tuig_native::{ArboraClient, SUBMISSION_UNKNOWN, TaskSubmission, correlation::TaskState};
 
 fn accepted(request_id: &str) -> Value {
@@ -138,7 +137,7 @@ async fn submits_exact_authenticated_text_with_one_stable_identity() {
 // spec: TUIG-RUNTIME-R002.1.3.1
 #[tokio::test]
 async fn invalid_prompt_cannot_create_a_submission_or_send_a_request() {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let (listener, _) = support::bind().await;
     let client =
         ArboraClient::new(&format!("http://{}", listener.local_addr().unwrap()), None).unwrap();
     for prompt in ["", " \n\t", &"x".repeat(65_537), &"é".repeat(32_769)] {

@@ -531,6 +531,7 @@ r / i: refresh | c: cancel local read | q: quit",
         }
     }
 
+    // contract: TUIG-RUNTIME-R010.10
     pub fn draw(&mut self, frame: &mut Frame, style: Style, border_style: Style, now: Instant) {
         self.spatial_visible = self.spatial_area_ok(frame.area());
         if self.spatial_visible {

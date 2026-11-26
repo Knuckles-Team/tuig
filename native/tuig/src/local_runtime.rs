@@ -12,6 +12,7 @@ pub struct Options {
     pub headless: bool,
 }
 
+// contract: TUIG-RUNTIME-R011.14
 pub fn options(args: &[OsString]) -> Result<Option<Options>, &'static str> {
     let mut flags = LocalArgs::default();
     let mut index = 0;
@@ -162,6 +163,7 @@ fn backend_executable() -> Result<PathBuf, &'static str> {
     }
 }
 
+// contract: TUIG-RUNTIME-R011.14
 #[cfg(unix)]
 pub async fn run(options: Options) -> Result<(), &'static str> {
     if std::env::var_os("AGENT_TASK_ID").is_some() {

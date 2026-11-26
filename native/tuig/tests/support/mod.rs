@@ -1,8 +1,23 @@
+//! Shared loopback fixtures. Each test crate uses a subset of them.
+#![allow(dead_code)]
+
 use std::time::Duration;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
 };
+
+/// Bind an ephemeral loopback listener and return it with its `http://` URL.
+pub async fn bind() -> (TcpListener, String) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}", listener.local_addr().unwrap());
+    (listener, url)
+}
+
+/// Bind a blocking loopback listener for tests that run no async runtime.
+pub fn bind_blocking() -> std::net::TcpListener {
+    std::net::TcpListener::bind("127.0.0.1:0").unwrap()
+}
 
 pub async fn serve_raw(response: String) -> (String, tokio::task::JoinHandle<String>) {
     serve_raw_after(response, Duration::ZERO).await
@@ -12,8 +27,7 @@ pub async fn serve_raw_after(
     response: String,
     delay: Duration,
 ) -> (String, tokio::task::JoinHandle<String>) {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let url = format!("http://{}", listener.local_addr().unwrap());
+    let (listener, url) = bind().await;
     let server = tokio::spawn(async move {
         let (mut socket, _) = listener.accept().await.unwrap();
         let mut request = Vec::new();

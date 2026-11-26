@@ -1,4 +1,5 @@
 pub mod acp;
+pub mod clock;
 pub mod coding_approval;
 pub mod correlation;
 pub mod execution_graph;
@@ -17,6 +18,10 @@ pub mod task_output;
 pub mod task_stream;
 pub mod terminal_event;
 pub mod turn_usage;
+
+#[cfg(test)]
+#[path = "../tests/support/mod.rs"]
+mod support;
 
 use correlation::{TaskCorrelation, TaskEvent, TaskState};
 use reqwest::{Client, Url, header};
@@ -112,6 +117,7 @@ pub struct ArboraClient {
     auth_mode: AuthMode,
     submission_timeout: Duration,
     committed_event_reads: bool,
+    clock: clock::Clock,
 }
 
 impl ArboraClient {
@@ -139,7 +145,22 @@ impl ArboraClient {
             auth_mode,
             submission_timeout: Duration::from_secs(300),
             committed_event_reads: false,
+            clock: clock::Clock::system(),
         })
+    }
+
+    /// Replace the time source that expiry checks read.
+    pub fn with_clock(mut self, clock: clock::Clock) -> Self {
+        self.clock = clock;
+        self
+    }
+
+    pub fn clock(&self) -> &clock::Clock {
+        &self.clock
+    }
+
+    pub fn now_ms(&self) -> u64 {
+        self.clock.now_ms()
     }
 
     fn validate_endpoint(endpoint: &str) -> Result<Url, &'static str> {
@@ -367,6 +388,7 @@ impl ArboraClient {
             .map_err(|error| error.message())
     }
 
+    // contract: TUIG-RUNTIME-R002.1.5
     pub async fn cancel_task(
         &self,
         binding: &TaskCorrelation,
@@ -407,6 +429,7 @@ impl ArboraClient {
         })
     }
 
+    // contract: TUIG-RUNTIME-R002.7
     pub async fn discover(&self) -> Result<String, &'static str> {
         let mut response = self
             .http

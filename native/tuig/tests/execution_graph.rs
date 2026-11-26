@@ -2,13 +2,14 @@ use serde_json::{Value, json};
 use std::time::Duration;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpListener,
     task::JoinHandle,
 };
 use tuig_native::{
     ArboraClient, AuthMode, correlation::TaskCorrelation, execution_graph::SCHEMA,
     run_inspector::ReadRefusal,
 };
+
+mod support;
 
 fn payload() -> Value {
     serde_json::from_str::<Value>(include_str!("fixtures/execution_graph_contract.json")).unwrap()["value"].clone()
@@ -32,8 +33,7 @@ fn envelope() -> Value {
 }
 
 async fn server(responses: Vec<(u16, Value)>) -> (String, JoinHandle<Vec<String>>) {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let (listener, endpoint) = support::bind().await;
     let task = tokio::spawn(async move {
         let mut requests = Vec::new();
         for (status, body) in responses {

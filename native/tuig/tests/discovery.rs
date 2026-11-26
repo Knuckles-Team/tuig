@@ -1,12 +1,10 @@
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpListener,
-};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tuig_native::ArboraClient;
 
+mod support;
+
 async fn serve(status: &str, body: &str) -> (String, tokio::task::JoinHandle<String>) {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let url = format!("http://{}", listener.local_addr().unwrap());
+    let (listener, url) = support::bind().await;
     let location = if status.starts_with("302") {
         "Location: /redirected\r\n"
     } else {
@@ -90,7 +88,7 @@ fn rejects_unsafe_configuration_without_network() {
 // spec: TUIG-RUNTIME-R002.7
 #[tokio::test]
 async fn cancels_pending_local_discovery() {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let (listener, _) = support::bind().await;
     let client =
         ArboraClient::new(&format!("http://{}", listener.local_addr().unwrap()), None).unwrap();
     let request = tokio::spawn(async move { client.discover().await });

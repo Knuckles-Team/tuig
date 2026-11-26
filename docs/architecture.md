@@ -35,6 +35,7 @@ line and the terminal views.
 |---|---|
 | `acp` | Experimental local headless turn over an owned backend child |
 | `app` | Host terminal entry points re-exported for the binary |
+| `clock` | Injected time source for expiry checks |
 | `coding_approval` | Approval requests, previews and fail-closed decisions |
 | `correlation` | Task, context and run identity binding |
 | `execution_graph` | Validated read of the run execution graph |
@@ -50,3 +51,20 @@ line and the terminal views.
 | `task_stream` | Task observation transport |
 | `terminal_event` | Terminal event model |
 | `turn_usage` | Turn usage accounting |
+
+The binary in `main.rs` declares these private modules.
+
+| Module | Responsibility |
+|---|---|
+| `cli` | Argument processing |
+| `composer` | Task composition input |
+| `headless` | Unary prompt and observation without a terminal |
+| `host_log_view` | Host log pane |
+| `inspector_view` | Run inspector pane |
+| `local_runtime` | Explicit local ACP runtime launch |
+| `local_session` | Local ACP interactive session |
+| `presentation` | Palettes, viewports and drawing helpers |
+| `public_details_view` | Collapsed public details pane |
+| `session` | Interactive session state and event loop |
+| `spatial_graph` | Read-only spatial execution graph |
+| `task_history_view` | Paged task history pane |

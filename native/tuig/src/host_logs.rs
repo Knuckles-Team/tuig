@@ -2,7 +2,7 @@
 use crate::ArboraClient;
 use reqwest::Url;
 use serde_json::{Value, json};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 pub const REFUSED: &str = "Host logs unavailable. Authenticated host access is required.";
 
@@ -92,7 +92,9 @@ fn parse_source_generations(value: &Value) -> Result<Vec<String>, &'static str> 
 }
 
 impl HostLaunchReceipt {
-    pub fn parse(value: &Value) -> Result<Self, &'static str> {
+    // contract: TUIG-RUNTIME-R002.11
+    /// Parse a launch receipt; one already expired at `now_ms` is refused.
+    pub fn parse(value: &Value, now_ms: u64) -> Result<Self, &'static str> {
         if !Self::frame_ok(value) {
             return Err(REFUSED);
         }
@@ -123,7 +125,7 @@ impl HostLaunchReceipt {
             ready: true,
             source_generations,
         };
-        if receipt.expires_at_ms <= now_ms() {
+        if receipt.expires_at_ms <= now_ms {
             return Err(REFUSED);
         }
         Ok(receipt)
@@ -270,13 +272,6 @@ impl LogRecord {
     }
 }
 
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
-}
-
 async fn read_bounded(response: &mut reqwest::Response) -> Result<Vec<u8>, &'static str> {
     let mut bytes = Vec::new();
     while let Some(chunk) = response.chunk().await.map_err(|_| REFUSED)? {
@@ -325,7 +320,7 @@ async fn post(client: &ArboraClient, path: &str, body: Value) -> Result<Value, &
 impl HostLogs {
     pub async fn bind(client: std::sync::Arc<ArboraClient>) -> Result<Self, &'static str> {
         let value = post(&client, "/host/logs/reference", json!({})).await?;
-        let receipt = HostLaunchReceipt::parse(&value)?;
+        let receipt = HostLaunchReceipt::parse(&value, client.now_ms())?;
         Ok(Self {
             reference: receipt.log_ref.clone(),
             expires: receipt.expires_at_ms(),
@@ -347,12 +342,12 @@ impl HostLogs {
         self.expires
     }
 
-    pub fn unexpired(expires: u64) -> bool {
-        expires > now_ms()
+    pub fn unexpired(expires: u64, now_ms: u64) -> bool {
+        expires > now_ms
     }
 
     pub fn valid(&self) -> bool {
-        self.expires > now_ms()
+        self.expires > self.client.now_ms()
     }
 
     pub async fn read(&mut self) -> Result<LogBatch, &'static str> {

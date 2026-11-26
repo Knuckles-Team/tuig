@@ -1,10 +1,9 @@
 use serde_json::{Value, json};
 use std::time::Duration;
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpListener,
-};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tuig_native::{ArboraClient, correlation::TaskCorrelation, recovery::ReadFailure};
+
+mod support;
 
 fn snapshot() -> Value {
     json!({"jsonrpc":"2.0", "id":"task-snapshot", "result": {
@@ -29,7 +28,7 @@ async fn serve_with_event_reads(
     responses: Vec<String>,
     include_event: bool,
 ) -> (ArboraClient, tokio::task::JoinHandle<()>) {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let (listener, _) = support::bind().await;
     let client = ArboraClient::new(
         &format!("http://{}", listener.local_addr().unwrap()),
         Some("fixture-token"),
@@ -226,7 +225,7 @@ async fn rpc_refusal_does_not_retry_or_expose_server_detail() {
 // spec: TUIG-RUNTIME-R002.1.3.2.1
 #[tokio::test]
 async fn aborting_a_read_during_backoff_stops_owned_recovery() {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let (listener, _) = support::bind().await;
     let client =
         ArboraClient::new(&format!("http://{}", listener.local_addr().unwrap()), None).unwrap();
     let request = tokio::spawn(async move { client.get_task("task-one").await });
@@ -251,7 +250,7 @@ async fn aborting_a_read_during_backoff_stops_owned_recovery() {
 // spec: TUIG-RUNTIME-R002.1.3.2.1
 #[tokio::test]
 async fn total_deadline_bounds_unresponsive_reads() {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let (listener, _) = support::bind().await;
     let client =
         ArboraClient::new(&format!("http://{}", listener.local_addr().unwrap()), None).unwrap();
     let start = tokio::time::Instant::now();

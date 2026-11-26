@@ -534,6 +534,7 @@ fn enable_terminal_input(writer: &mut impl std::io::Write) -> std::io::Result<()
     result
 }
 
+// contract: TUIG-RUNTIME-R002.1.3
 async fn run(
     client: Arc<ArboraClient>,
     task_id: Option<String>,
@@ -1681,6 +1682,10 @@ mod confirmation_view_tests {
         }
     }
 }
+#[cfg(test)]
+#[path = "../tests/support/mod.rs"]
+mod support;
+
 #[cfg(test)]
 mod recovery_view_tests;
 

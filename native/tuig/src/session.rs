@@ -75,6 +75,7 @@ pub struct Session {
 
 // Session lifecycle, rendering and request results.
 impl Session {
+    // contract: TUIG-RUNTIME-R002.1.3
     pub fn new(
         client: Arc<ArboraClient>,
         task_id: Option<String>,

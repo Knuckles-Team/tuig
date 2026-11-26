@@ -123,6 +123,7 @@ pub struct ApprovalPreview {
     request: ApprovalRequest,
 }
 impl ApprovalPreview {
+    // contract: TUIG-RUNTIME-R011.13
     pub fn text(&self) -> String {
         let request = &self.request;
         let mut text = format!(
