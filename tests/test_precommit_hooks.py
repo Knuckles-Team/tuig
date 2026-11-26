@@ -104,6 +104,9 @@ def test_ci_required_aggregates_every_blocking_job_and_skips_native_on_prs():
         "full",
         "native-wheels",
         "native-checks",
+        "cargo-advisories",
+        "native-coverage",
+        "docs-strict",
     }
     assert "ste-advisory" not in required["needs"]
     assert jobs["native-wheels"]["if"] == "github.event_name != 'pull_request'"

@@ -7,7 +7,7 @@ uses the same client and fails closed on input/authentication requirements.
 One-task interactive A2A composition is available. Streaming, approval
 attachment, context continuation and durable resume remain open. Full served parity and release performance are
 not established by focused tests. The Python implementation is removed, not a
-fallback. See the canonical [requirements](../specs/terminal-runtime/requirements.md).
+fallback. See the canonical [requirements](https://github.com/Knuckles-Team/tuig/blob/main/specs/terminal-runtime/requirements.md).
 
 An explicit local ACP v1 path supports interactive text sessions and headless
 one-shot text through an internal Arbora child process. It advertises no host tools or
@@ -21,5 +21,5 @@ per type — by self-contained source tests in addition to the Clippy gate. The
 limits are recorded in the test module's threshold table, and each test
 rejects a counterexample that violates the same criterion. Remaining
 requirements are tracked in the canonical
-[requirements](../specs/terminal-runtime/requirements.md); their state is
+[requirements](https://github.com/Knuckles-Team/tuig/blob/main/specs/terminal-runtime/requirements.md); their state is
 computed, not written.
