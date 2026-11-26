@@ -104,6 +104,7 @@ def test_ci_required_aggregates_every_blocking_job_and_skips_native_on_prs():
         "full",
         "native-wheels",
         "native-checks",
+        "live-sandbox",
         "cargo-advisories",
         "native-coverage",
         "docs-strict",
