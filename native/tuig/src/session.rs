@@ -19,7 +19,7 @@ use crossterm::event::{
 };
 use futures_util::StreamExt;
 use ratatui::Frame;
-use std::{env, sync::Arc};
+use std::sync::Arc;
 use tuig_native::{
     ArboraClient, TaskSnapshot, TaskSubmission, correlation::TaskCorrelation,
     operation_command::OperationCommand, plan_confirm::PlanBinding,
@@ -81,10 +81,8 @@ impl Session {
         task_id: Option<String>,
         submission: Option<TaskSubmission>,
         observe: bool,
+        themes: ThemeSelection,
     ) -> (Self, ReadRequest) {
-        let theme = env::var("AGENT_THEME").unwrap_or_else(|_| "tokyo-night".to_owned());
-        let no_color = env::var("NO_COLOR").unwrap_or_default();
-        let themes = ThemeSelection::new(&theme, &no_color);
         let submitting = submission.is_some();
         let automatic_observation = observe || submitting;
         let can_compose = task_id.is_none() && submission.is_none() && !observe;

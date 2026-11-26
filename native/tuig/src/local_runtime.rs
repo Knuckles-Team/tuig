@@ -1,3 +1,4 @@
+use crate::presentation::ThemeSelection;
 use std::ffi::OsString;
 #[cfg(unix)]
 use std::{path::PathBuf, process::Stdio, time::Duration};
@@ -141,7 +142,7 @@ impl Drop for Output {
 }
 
 #[cfg(not(unix))]
-pub async fn run(_options: Options) -> Result<(), &'static str> {
+pub async fn run(_options: Options, _themes: ThemeSelection) -> Result<(), &'static str> {
     Err("Local ACP runtime currently requires a POSIX host")
 }
 
@@ -165,12 +166,9 @@ fn backend_executable() -> Result<PathBuf, &'static str> {
 
 // contract: TUIG-RUNTIME-R011.14
 #[cfg(unix)]
-pub async fn run(options: Options) -> Result<(), &'static str> {
-    if std::env::var_os("AGENT_TASK_ID").is_some() {
-        return Err("Local runtime cannot be combined with AGENT_TASK_ID");
-    }
+pub async fn run(options: Options, themes: ThemeSelection) -> Result<(), &'static str> {
     if !options.headless {
-        return crate::local_session::run(options).await;
+        return crate::local_session::run(options, themes).await;
     }
     let output = Output::new()?;
     let (mut child, mut client, cwd) = spawn_backend(&options.model)?;

@@ -75,7 +75,7 @@ def test_security_scan_gates_configured():
     workflow, config = _workflow(), _config()
     assert _security_gates_configured(workflow, config)
     skipping = copy.deepcopy(workflow)
-    skipping["jobs"]["gates"]["with"]["skip-hooks"] += ",secrets"
+    skipping["jobs"]["gates"]["with"]["skip-hooks"] = "secrets"
     assert not _security_gates_configured(skipping, config)
     no_rust = copy.deepcopy(workflow)
     no_rust["jobs"]["main-gates"]["with"]["rust"] = False
@@ -286,6 +286,11 @@ def _reads_ambient_clock(source: str) -> bool:
     return any(token in stripped for token in CLOCK_SOURCES)
 
 
+def _reads_ambient_environment(source: str) -> bool:
+    stripped = _strip_comments_and_strings(source)
+    return bool(re.search(r"\benv::(?:var|var_os|vars|vars_os)\b", stripped))
+
+
 @pytest.mark.spec("TUIG-RUNTIME-R015.22")
 def test_dependency_injection():
     lib = (NATIVE_SRC / "lib.rs").read_text()
@@ -312,6 +317,14 @@ def test_dependency_injection():
         assert "Clock::from_fn" in text
         assert not re.search(r"\bsleep\(|SystemTime", text), f"{name} must not wait on time"
     assert "serve_raw" in (NATIVE_TESTS / "support" / "mod.rs").read_text()
+    env_readers = [
+        path.name
+        for path in sorted(NATIVE_SRC.glob("*.rs"))
+        if path.name != "main.rs" and _reads_ambient_environment(path.read_text())
+    ]
+    assert env_readers == [], f"only main.rs may read the environment: {env_readers}"
+    assert _reads_ambient_environment('let theme = env::var("AGENT_THEME");')
+    assert not _reads_ambient_environment('let name = env!("CARGO_PKG_VERSION");')
     assert _reads_ambient_clock("let now = SystemTime::now();")
     assert not _reads_ambient_clock("let now = client.now_ms(); // SystemTime")
 

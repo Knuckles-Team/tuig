@@ -270,9 +270,9 @@ fn draw_status(
     frame.render_widget(paragraph.scroll((viewport.offset(), 0)), body);
 }
 
-pub async fn run(options: Options) -> Result<(), &'static str> {
+pub async fn run(options: Options, themes: ThemeSelection) -> Result<(), &'static str> {
     tokio::task::LocalSet::new()
-        .run_until(run_ui(options))
+        .run_until(run_ui(options, themes))
         .await
 }
 
@@ -586,7 +586,7 @@ async fn settle_worker(
     }
 }
 
-async fn run_ui(mut options: Options) -> Result<(), &'static str> {
+async fn run_ui(mut options: Options, mut themes: ThemeSelection) -> Result<(), &'static str> {
     let initial = options.prompt.take();
     let (commands, command_rx) = mpsc::channel(1);
     let (update_tx, mut updates) = mpsc::channel(16);
@@ -605,10 +605,6 @@ async fn run_ui(mut options: Options) -> Result<(), &'static str> {
     let mut ui = UiState::new();
     ui.initial = initial;
     let mut events = EventStream::new();
-    let mut themes = ThemeSelection::new(
-        &std::env::var("AGENT_THEME").unwrap_or_else(|_| "tokyo-night".to_owned()),
-        &std::env::var("NO_COLOR").unwrap_or_default(),
-    );
     let result = run_event_loop(
         &mut terminal,
         &mut ui,

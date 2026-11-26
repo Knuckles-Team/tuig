@@ -209,6 +209,33 @@ def test_native_concepts_and_test_bindings_reconcile():
     assert _reconciled(declared, retired, bound | {gone}) == [f"{gone}: retired but still bound"]
 
 
+# --- R015.62: every configured hook runs at both stages in CI -------------
+
+
+def _skipped_hooks(workflow: dict) -> list[str]:
+    skipped: list[str] = []
+    for name in ("gates", "main-gates"):
+        value = str(workflow["jobs"][name].get("with", {}).get("skip-hooks", ""))
+        skipped += [hook for hook in value.split(",") if hook]
+    return skipped
+
+
+@pytest.mark.spec("TUIG-RUNTIME-R015.62")
+def test_ci_runs_every_configured_hook_at_both_stages():
+    workflow, config = _workflow(), _config()
+    assert _skipped_hooks(workflow) == []
+    assert workflow["jobs"]["main-gates"]["with"]["all-files"] is True
+    assert config["default_stages"] == ["pre-commit", "pre-push"]
+    pytest_hook = _hooks(config)["pytest"]
+    assert "uv run --frozen --group test pytest" in pytest_hook["entry"]
+    for job in ("gates", "main-gates"):
+        assert "UV_NO_SYNC=1" in workflow["jobs"][job]["with"]["setup-command"]
+    assert "pre-push" in pytest_hook["stages"]
+    skipping = copy.deepcopy(workflow)
+    skipping["jobs"]["gates"]["with"]["skip-hooks"] = "lane-guard"
+    assert _skipped_hooks(skipping) == ["lane-guard"]
+
+
 # --- R015.64: version mirrors and locks agree -----------------------------
 
 

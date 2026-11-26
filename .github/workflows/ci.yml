@@ -54,6 +54,8 @@ jobs:
       setup-command: |
         set -euo pipefail
         uv sync --python 3.14 --frozen --no-install-project --group test
+        # The harness tests need no installed project; skip the native wheel build the pytest hook would trigger.
+        echo UV_NO_SYNC=1 >> "$GITHUB_ENV"
         # The operator-owned identity catalog for the shared secrets hook arrives
         # through a repository variable the shared workflow hands to this step.
         if [ -n "${PROHIBITED_IDENTITY_CATALOG:-}" ]; then
@@ -61,8 +63,6 @@ jobs:
           printf '%s' "$PROHIBITED_IDENTITY_CATALOG" > "$HOME/.config/arbora/governance/prohibited-identities.json"
         fi
       rust: true
-      # sibling-checkout hooks are unavailable on a hosted runner; pytest is replaced by the shared affected-tests step
-      skip-hooks: okf-no-legacy-concepts,lane-guard,dependency-readiness,pytest
       timeout-minutes: 15
 
   main-gates:
@@ -75,6 +75,8 @@ jobs:
       setup-command: |
         set -euo pipefail
         uv sync --python 3.14 --frozen --no-install-project --group test
+        # The harness tests need no installed project; skip the native wheel build the pytest hook would trigger.
+        echo UV_NO_SYNC=1 >> "$GITHUB_ENV"
         # The operator-owned identity catalog for the shared secrets hook arrives
         # through a repository variable the shared workflow hands to this step.
         if [ -n "${PROHIBITED_IDENTITY_CATALOG:-}" ]; then
@@ -82,7 +84,6 @@ jobs:
           printf '%s' "$PROHIBITED_IDENTITY_CATALOG" > "$HOME/.config/arbora/governance/prohibited-identities.json"
         fi
       rust: true
-      skip-hooks: okf-no-legacy-concepts,lane-guard,dependency-readiness,pytest
       all-files: true
       timeout-minutes: 60
 
