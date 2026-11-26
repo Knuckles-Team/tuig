@@ -608,6 +608,7 @@ Environment:
   AGENT_URL                        Endpoint (default: http://localhost:8000).
   AGENT_BEARER_TOKEN               Caller credential; required for remote access.
   AGENT_AUTH_MODE                  bearer (default), or none for local loopback.
+  AGENT_WORKSTREAM                 Attach a local coding session to the workstream.
   AGENT_TASK_ID                    Existing task to read; does not resume chat.
   AGENT_SUBMISSION_TIMEOUT_SECONDS Submission timeout, 1..900 (default: 300).
   AGENT_INCLUDE_COMMITTED_EVENT    Include committed event reads: true or false.
@@ -780,10 +781,10 @@ fn theme_selection() -> ThemeSelection {
 }
 
 /// Run the local coding session, attached to the caller's workstream when
-/// `AGENT_URL` names an Arbora. A refused or unserved attach never blocks it.
+/// `AGENT_WORKSTREAM` is set and `AGENT_URL` names an Arbora. A refused or unserved attach never blocks it.
 async fn run_local(mut local: local_runtime::Options) -> Result<(), &'static str> {
-    let client = match env::var("AGENT_URL") {
-        Ok(endpoint) if !local.headless => {
+    let client = match (env::var("AGENT_URL"), env::var_os("AGENT_WORKSTREAM")) {
+        (Ok(endpoint), Some(_)) if !local.headless => {
             let (token, auth_mode) = caller_credential()?;
             remote_client(&endpoint, token.as_deref(), auth_mode).ok()
         }

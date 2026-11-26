@@ -6,6 +6,7 @@
 | --- | --- |
 | `AGENT_URL` | Arbora endpoint; default `http://localhost:8000`. |
 | `AGENT_BEARER_TOKEN` | Caller credential for remote service access. |
+| `AGENT_WORKSTREAM` | When set, a local coding session attaches to the caller's workstream through `AGENT_URL`. |
 | `AGENT_AUTH_MODE` | `bearer` by default; `none` only for explicit loopback. |
 | `AGENT_TASK_ID` | Read an existing task, not a resumed conversation. |
 | `AGENT_SUBMISSION_TIMEOUT_SECONDS` | 1..900 seconds; default 300. |

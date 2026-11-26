@@ -34,6 +34,7 @@ fn help_is_available_without_runtime_configuration_or_a_terminal() {
             "AGENT_URL",
             "AGENT_BEARER_TOKEN",
             "AGENT_AUTH_MODE",
+            "AGENT_WORKSTREAM",
             "AGENT_TASK_ID",
             "AGENT_SUBMISSION_TIMEOUT_SECONDS",
             "AGENT_INCLUDE_COMMITTED_EVENT",
