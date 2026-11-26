@@ -63,7 +63,7 @@ fn ready(now: Instant) -> RunInspector {
     state
 }
 
-// spec: TUIG-RUNTIME-R010.7
+// spec: TUIG-RUNTIME-R010.7, TUIG-RUNTIME-R010.2, TUIG-RUNTIME-R010.3
 #[test]
 fn renders_recorded_configuration_and_zero_separately_from_unavailable() {
     let now = Instant::now();
@@ -98,7 +98,7 @@ fn renders_recorded_configuration_and_zero_separately_from_unavailable() {
     assert!(!text.contains("recorded-policy"));
 }
 
-// spec: TUIG-RUNTIME-R010.7
+// spec: TUIG-RUNTIME-R010.7, TUIG-RUNTIME-R010.3
 #[test]
 fn invalid_cost_never_displays_as_measurement() {
     for cost in [f64::NAN, f64::INFINITY, -1.0] {
@@ -157,7 +157,7 @@ fn wrong_run_stale_regressing_and_malformed_plans_disclose_no_items() {
     assert!(!text.contains("opaque-A"));
 }
 
-// spec: TUIG-RUNTIME-R010.7
+// spec: TUIG-RUNTIME-R010.7, TUIG-RUNTIME-R010.5
 #[test]
 fn terminal_reasons_remain_distinct_and_unknown_is_unavailable() {
     let labels: std::collections::HashSet<_> = [

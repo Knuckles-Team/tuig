@@ -169,7 +169,7 @@ impl Drop for HostLogView {
 mod tests {
     use super::*;
 
-    // spec: TUIG-RUNTIME-R002.11
+    // spec: TUIG-RUNTIME-R002.11, TUIG-RUNTIME-R002.5
     #[tokio::test]
     async fn close_aborts_pending_read_and_clears_protected_lines() {
         let mut view = HostLogView {

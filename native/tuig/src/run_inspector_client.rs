@@ -656,7 +656,7 @@ mod transport_tests {
         serde_json::json!({"api_version":"v1", "registry_digest":"d", "ops":ops})
     }
 
-    // spec: TUIG-RUNTIME-R010.8
+    // spec: TUIG-RUNTIME-R010.8, TUIG-RUNTIME-R010.1
     #[tokio::test]
     async fn advertised_read_uses_credentials_exact_run_and_digest() {
         let body = serde_json::json!({"ok":true,"meta":{"api_version":"v1","registry_digest":"d"},"result":{"value":{"availability":"available","run_id":"r","peak_context_tokens":0,"current_plan":{"availability":"unavailable","snapshot":null}}}});
@@ -861,7 +861,7 @@ mod transport_tests {
         }
     }
 
-    // spec: TUIG-RUNTIME-R010.8
+    // spec: TUIG-RUNTIME-R010.8, TUIG-RUNTIME-R010.1
     #[tokio::test]
     async fn absent_operation_does_not_dispatch_and_changed_digest_refuses() {
         let (endpoint, task) = server(vec![(200, registry(serde_json::json!([])))]).await;
