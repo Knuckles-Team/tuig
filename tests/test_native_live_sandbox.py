@@ -149,7 +149,10 @@ def compose(sandbox: Sandbox, draft: str, expected: str) -> str:
     try:
         terminal.wait_until(lambda: "Compose one task" in terminal.shown())
         terminal.send(draft.encode() + b"\r")
-        terminal.wait_until(lambda: expected in terminal.shown())
+        terminal.wait_until(
+            lambda: expected in terminal.shown()
+            and "Reading served" not in terminal.shown()
+        )
         shown = terminal.shown()
         terminal.send(b"\x1b")
         terminal.send(b"q")
