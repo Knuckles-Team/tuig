@@ -34,7 +34,7 @@ struct PlanIssue {
     params_digest: &'static str,
     registry_digest: &'static str,
     lease: &'static str,
-    expires_at_ms: u128,
+    expires_at_ms: u64,
 }
 
 impl PlanIssue {
