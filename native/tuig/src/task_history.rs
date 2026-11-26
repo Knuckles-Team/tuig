@@ -342,6 +342,7 @@ impl TaskHistory {
         self.status = HistoryStatus::Reading;
     }
 
+    // contract: TUIG-RUNTIME-R012.3.1
     /// Await the in-flight read; a late completion after close is discarded.
     pub async fn complete(&mut self) {
         let Some(request) = self.request.take() else {

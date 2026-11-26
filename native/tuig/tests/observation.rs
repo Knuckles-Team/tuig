@@ -1,4 +1,6 @@
-use std::{io::ErrorKind, net::TcpListener, process::Command};
+use std::{io::ErrorKind, process::Command};
+
+mod support;
 
 #[test]
 fn invalid_observation_arguments_and_missing_credentials_make_zero_requests() {
@@ -13,7 +15,7 @@ fn invalid_observation_arguments_and_missing_credentials_make_zero_requests() {
         ),
         (vec!["--observe-task", "task-1"], true, Some("other-task")),
     ] {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let listener = support::bind_blocking();
         listener.set_nonblocking(true).unwrap();
         let mut command = Command::new(env!("CARGO_BIN_EXE_tuig"));
         command
@@ -47,7 +49,7 @@ fn invalid_anonymous_configuration_makes_zero_requests() {
         ("invalid", None),
     ] {
         for args in [["--prompt", "text"], ["--observe-task", "task-1"]] {
-            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let listener = support::bind_blocking();
             listener.set_nonblocking(true).unwrap();
             let mut command = Command::new(env!("CARGO_BIN_EXE_tuig"));
             command

@@ -132,6 +132,7 @@ impl TerminalEvent {
         Ok(())
     }
 
+    // contract: TUIG-RUNTIME-R002.1.3.2.2.1
     pub fn text(&self) -> String {
         match self {
             Self::LegacyUnavailable => {

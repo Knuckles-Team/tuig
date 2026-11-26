@@ -76,6 +76,7 @@ impl Composer {
         Some(self.text.clone())
     }
 
+    // contract: TUIG-RUNTIME-R008.2
     pub fn draw(&self, frame: &mut Frame, style: Style, border: Style) {
         let block = Block::bordered()
             .title(if self.local {

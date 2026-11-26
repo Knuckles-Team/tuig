@@ -107,8 +107,7 @@ async fn neither_mode_retries_refusal_or_follows_redirects() {
 // spec: TUIG-RUNTIME-R002.1.3.3
 #[tokio::test]
 async fn anonymous_tasks_do_not_grant_authenticated_host_log_authority() {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let url = format!("http://{}", listener.local_addr().unwrap());
+    let (listener, url) = support::bind().await;
     let client = ArboraClient::with_auth_mode(&url, None, AuthMode::None).unwrap();
     assert!(
         tuig_native::host_logs::HostLogs::bind(std::sync::Arc::new(client))

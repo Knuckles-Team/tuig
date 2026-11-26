@@ -1,5 +1,6 @@
 use std::ffi::OsString;
 
+// contract: TUIG-RUNTIME-R002.1.3
 pub fn arguments(args: &[OsString]) -> Result<(bool, Vec<OsString>), &'static str> {
     let mut headless = false;
     let mut remaining = Vec::new();

@@ -209,6 +209,7 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> TextClient<R, W> {
         Ok(result.clone())
     }
 
+    // contract: TUIG-RUNTIME-R011.14
     pub async fn initialize(&mut self, cwd: &str) -> Result<(), &'static str> {
         if self.session.is_some() {
             return Err("ACP session already initialized");
@@ -252,6 +253,7 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> TextClient<R, W> {
         Err("Unsolicited ACP message between turns")
     }
 
+    // contract: TUIG-RUNTIME-R011.14
     pub async fn prompt(&mut self, text: &str) -> Result<u64, &'static str> {
         if self.prompted && !self.sequential {
             return Err("ACP one-shot prompt already sent");

@@ -74,6 +74,7 @@ impl PlanValidator for SnapshotValidity {
 }
 
 impl ArboraClient {
+    // contract: TUIG-RUNTIME-R010.8
     /// Read only after this caller's registry advertises the operation.
     pub async fn get_run(&self, run_id: &str, task_id: &str) -> Result<RunRead, ReadRefusal> {
         if task_id.trim().is_empty()
@@ -602,16 +603,12 @@ mod tests {
 mod transport_tests {
     use super::*;
     use serde_json::json;
-    use tokio::{
-        io::{AsyncReadExt, AsyncWriteExt},
-        net::TcpListener,
-    };
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     async fn server(
         responses: Vec<(u16, Value)>,
     ) -> (String, tokio::task::JoinHandle<Vec<String>>) {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let (listener, endpoint) = crate::support::bind().await;
         let handle = tokio::spawn(async move {
             let mut requests = Vec::new();
             for (status, body) in responses {

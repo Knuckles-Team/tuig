@@ -35,6 +35,7 @@ line and the terminal views.
 |---|---|
 | `acp` | Experimental local headless turn over an owned backend child |
 | `app` | Host terminal entry points re-exported for the binary |
+| `clock` | Injected time source for expiry checks |
 | `coding_approval` | Approval requests, previews and fail-closed decisions |
 | `correlation` | Task, context and run identity binding |
 | `execution_graph` | Validated read of the run execution graph |

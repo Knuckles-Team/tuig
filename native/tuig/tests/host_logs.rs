@@ -1,22 +1,23 @@
 use serde_json::{Value, json};
 use std::{
-    sync::Arc,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Duration,
 };
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpListener,
-};
-use tuig_native::{ArboraClient, app::run_host_terminal, host_logs::HostLogs};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tuig_native::{ArboraClient, app::run_host_terminal, clock::Clock, host_logs::HostLogs};
+
+mod support;
+
+const NOW_MS: u64 = 1_800_000_000_000;
+const LEASE_MS: u64 = 60_000;
 
 const ENDPOINT_SENTINEL: &str = "http://127.0.0.1:1/";
 
 fn receipt() -> Value {
-    let expires = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_millis() as u64
-        + 60000;
+    let expires = NOW_MS + LEASE_MS;
     json!({"version":1,"log_ref":"opaque","host_instance":"host","endpoint":"http://127.0.0.1:1/","workspace":"/fixture","tenant":"tenant","principal":"principal-π🙂","session_ref":"session","policy_revision":"policy","grant_revision":"grant","expires_at_ms":expires,"interface_mode":"both","web_logs":true,"ready":true,"source_generations":["host"]})
 }
 
@@ -42,12 +43,10 @@ fn encode_response(fixture: FixtureResponse, endpoint: &str) -> String {
 }
 
 async fn serve(responses: Vec<FixtureResponse>) -> (ArboraClient, tokio::task::JoinHandle<()>) {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let client = ArboraClient::new(
-        &format!("http://{}", listener.local_addr().unwrap()),
-        Some("fixture-token"),
-    )
-    .unwrap();
+    let (listener, url) = support::bind().await;
+    let client = ArboraClient::new(&url, Some("fixture-token"))
+        .unwrap()
+        .with_clock(Clock::from_fn(|| NOW_MS));
     let endpoint = client.endpoint();
     let server = tokio::spawn(async move {
         for fixture in responses {
@@ -201,7 +200,7 @@ async fn changed_receipt_binding_is_rejected_before_reader_use() {
     let mut changed = receipt();
     changed["endpoint"] = json!(client.endpoint());
     changed["tenant"] = json!("foreign-tenant");
-    let changed = tuig_native::host_logs::HostLaunchReceipt::parse(&changed).unwrap();
+    let changed = tuig_native::host_logs::HostLaunchReceipt::parse(&changed, NOW_MS).unwrap();
     let matching = logs.receipt().clone();
     let reader = logs.into_reader();
     assert!(run_host_terminal(changed, client.as_ref(), Some(reader)).is_err());
@@ -236,7 +235,7 @@ async fn missing_reader_refuses_without_a_network_read() {
     let client = Arc::new(ArboraClient::new("http://127.0.0.1:9", Some("fixture-token")).unwrap());
     let mut payload = receipt();
     payload["endpoint"] = json!(client.endpoint());
-    let receipt = tuig_native::host_logs::HostLaunchReceipt::parse(&payload).unwrap();
+    let receipt = tuig_native::host_logs::HostLaunchReceipt::parse(&payload, NOW_MS).unwrap();
     assert!(run_host_terminal(receipt, client.as_ref(), None).is_err());
 }
 
@@ -247,7 +246,7 @@ async fn endpoint_binding_is_checked_before_reader_use() {
     let logs = HostLogs::bind(client.clone()).await.unwrap();
     let mut changed = receipt();
     changed["endpoint"] = json!("http://127.0.0.1:2/");
-    let changed = tuig_native::host_logs::HostLaunchReceipt::parse(&changed).unwrap();
+    let changed = tuig_native::host_logs::HostLaunchReceipt::parse(&changed, NOW_MS).unwrap();
     assert!(run_host_terminal(changed, client.as_ref(), Some(logs.into_reader())).is_err());
     server.await.unwrap();
 }
@@ -265,5 +264,22 @@ async fn records_from_another_generation_are_refused() {
     let mut reader = HostLogs::bind(Arc::new(client)).await.unwrap();
     assert!(reader.read().await.is_err());
     assert!(!reader.valid());
+    server.await.unwrap();
+}
+
+// spec: TUIG-RUNTIME-R002.11
+#[tokio::test]
+async fn a_controlled_clock_expires_the_binding_without_waiting() {
+    let now = Arc::new(AtomicU64::new(NOW_MS));
+    let source = now.clone();
+    let (client, server) = serve(vec![response(200, receipt())]).await;
+    let client = client.with_clock(Clock::from_fn(move || source.load(Ordering::SeqCst)));
+    let logs = HostLogs::bind(Arc::new(client)).await.unwrap();
+    assert!(logs.valid());
+    now.store(NOW_MS + LEASE_MS - 1, Ordering::SeqCst);
+    assert!(logs.valid());
+    now.store(NOW_MS + LEASE_MS, Ordering::SeqCst);
+    assert!(!logs.valid());
+    assert!(!HostLogs::unexpired(NOW_MS + LEASE_MS, NOW_MS + LEASE_MS));
     server.await.unwrap();
 }
