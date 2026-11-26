@@ -17,6 +17,8 @@ use tuig_native::{
 };
 
 mod cli;
+#[cfg(unix)]
+mod coding_view;
 mod composer;
 mod headless;
 mod host_log_view;
@@ -572,7 +574,7 @@ async fn run(
 const CLI_HELP: &str = "Tuig: native Arbora terminal
 
 Usage: tuig [--headless] [--prompt TEXT | --observe-task TASK_ID]
-       tuig --local-runtime --local-model PROVIDER:MODEL [--prompt TEXT]
+       tuig --local-runtime --local-model PROVIDER:MODEL [--workspace-root PATH] [--prompt TEXT]
        tuig --local-runtime --local-model PROVIDER:MODEL --headless --prompt TEXT
        tuig --one-shot < REQUEST.json
        tuig --help
@@ -588,6 +590,7 @@ Options:
                           preapproval_ref. Prints its lifecycle and evidence.
   --local-runtime         Spawn internal arbora-acp (POSIX, 16 KiB prompt).
   --local-model VALUE     Provider:model for explicit local runtime only.
+  --workspace-root PATH   Directory the local session opens in (default: current directory).
   -h, --help              Print this help without connecting or opening a terminal.
 
 With no arguments, compose one task or read AGENT_TASK_ID.

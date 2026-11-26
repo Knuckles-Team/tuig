@@ -17,6 +17,16 @@ pub enum Capability {
     KillTerminal,
 }
 impl Capability {
+    /// The closed set a local session offers to its backend.
+    pub const ALL: [Capability; 6] = [
+        Self::ReadText,
+        Self::WriteText,
+        Self::CreateTerminal,
+        Self::TerminalOutput,
+        Self::WaitForExit,
+        Self::KillTerminal,
+    ];
+
     pub fn parse(method: &str) -> Result<Self, ApprovalError> {
         match method {
             "fs/read_text_file" => Ok(Self::ReadText),

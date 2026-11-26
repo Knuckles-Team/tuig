@@ -6,6 +6,14 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader
 pub const MAX_FRAME_BYTES: usize = 256 * 1024;
 pub const MAX_OUTPUT_BYTES: usize = 4 * 1024 * 1024;
 
+/// A client-capability request the agent sent, held until the view answers it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HostRequest {
+    pub id: Value,
+    pub method: String,
+    pub params: Value,
+}
+
 pub struct TextClient<R, W> {
     reader: BufReader<R>,
     writer: W,
@@ -20,6 +28,7 @@ pub struct TextClient<R, W> {
     next_id: u64,
     turn: Option<u64>,
     turn_ready: bool,
+    host_capabilities: bool,
 }
 
 impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> TextClient<R, W> {
@@ -38,7 +47,20 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> TextClient<R, W> {
             next_id: 3,
             turn: None,
             turn_ready: true,
+            host_capabilities: false,
         }
+    }
+
+    /// Advertise the closed client-capability set; each request must then be
+    /// answered through `response_hosted`, and is refused everywhere else.
+    // contract: TUIG-RUNTIME-R011.8
+    pub fn with_host_capabilities(mut self) -> Self {
+        self.host_capabilities = true;
+        self
+    }
+
+    pub fn session_id(&self) -> Option<&str> {
+        self.session.as_deref()
     }
 
     pub fn with_sequential_turns(mut self) -> Self {
@@ -99,7 +121,19 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> TextClient<R, W> {
     pub async fn response(
         &mut self,
         id: u64,
+        output: impl AsyncFnMut(&str) -> Result<(), &'static str>,
+    ) -> Result<Value, &'static str> {
+        self.response_hosted(id, output, async |_| None).await
+    }
+
+    /// Like `response`, but a client-capability request is handed to `host`,
+    /// whose frame is sent back; `None` keeps the refusal.
+    // contract: TUIG-RUNTIME-R011.8
+    pub async fn response_hosted(
+        &mut self,
+        id: u64,
         mut output: impl AsyncFnMut(&str) -> Result<(), &'static str>,
+        mut host: impl AsyncFnMut(HostRequest) -> Option<Value>,
     ) -> Result<Value, &'static str> {
         if self.pending != Some(id) {
             return Err("ACP response was not requested");
@@ -110,7 +144,7 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> TextClient<R, W> {
                 return Err("Invalid ACP envelope");
             }
             if let Some(method) = value.get("method") {
-                self.handle_notification(method, &value, &mut output)
+                self.handle_notification(method, &value, &mut output, &mut host)
                     .await?;
                 continue;
             }
@@ -123,6 +157,7 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> TextClient<R, W> {
         method: &Value,
         value: &Value,
         output: &mut impl AsyncFnMut(&str) -> Result<(), &'static str>,
+        host: &mut impl AsyncFnMut(HostRequest) -> Option<Value>,
     ) -> Result<(), &'static str> {
         self.notifications += 1;
         if self.notifications > 16_384 {
@@ -132,6 +167,19 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> TextClient<R, W> {
             return Err("Invalid ACP method envelope");
         }
         if let Some(request_id) = value.get("id") {
+            if self.host_capabilities
+                && let Some(name) = method
+                    .as_str()
+                    .filter(|name| Capability::parse(name).is_ok())
+                && let Some(frame) = host(HostRequest {
+                    id: request_id.clone(),
+                    method: name.to_owned(),
+                    params: value["params"].clone(),
+                })
+                .await
+            {
+                return self.send(frame).await;
+            }
             self.refuse_capability(request_id, method).await?;
             return Err("ACP requested an unsupported client capability; no permission granted");
         }
@@ -217,7 +265,12 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> TextClient<R, W> {
         if !std::path::Path::new(cwd).is_absolute() {
             return Err("ACP workspace must be absolute");
         }
-        self.request(1, "initialize", json!({"protocolVersion":1,"clientCapabilities":{},"clientInfo":{"name":"tuig","version":env!("CARGO_PKG_VERSION")}})).await?;
+        let capabilities = if self.host_capabilities {
+            json!({"fs":{"readTextFile":true,"writeTextFile":true},"terminal":true})
+        } else {
+            json!({})
+        };
+        self.request(1, "initialize", json!({"protocolVersion":1,"clientCapabilities":capabilities,"clientInfo":{"name":"tuig","version":env!("CARGO_PKG_VERSION")}})).await?;
         let initialized = self
             .response(1, async |_| {
                 Err("Unexpected ACP output during initialization")

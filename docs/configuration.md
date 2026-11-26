@@ -20,7 +20,12 @@ Legacy Python settings, SQLite stores and hooks are not consumed by `tuig`.
 ```sh
 tuig --local-runtime --local-model PROVIDER:MODEL
 tuig --local-runtime --local-model PROVIDER:MODEL --headless --prompt "Hello"
+tuig --local-runtime --local-model PROVIDER:MODEL --workspace-root PATH
 ```
+
+`--workspace-root PATH` opens the session at an existing directory instead of the
+current one. The path is resolved before the backend starts; a missing path or a
+file is refused.
 
 This path starts the separately installed internal `arbora-acp` executable at
 an absolute workspace root. It first checks beside the resolved `tuig` binary,

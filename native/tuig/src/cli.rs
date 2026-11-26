@@ -14,10 +14,7 @@ pub fn arguments(args: &[OsString]) -> Result<(bool, Vec<OsString>), &'static st
         } else {
             remaining.push(args[index].clone());
             // A prompt or identifier is data, even when it looks like a flag.
-            if args[index] == "--prompt"
-                || args[index] == "--observe-task"
-                || args[index] == "--continue"
-            {
+            if value_flag(&args[index]) || args[index] == "--continue" {
                 index += 1;
                 if let Some(value) = args.get(index) {
                     remaining.push(value.clone());
@@ -72,7 +69,7 @@ pub fn continuation(
 }
 
 fn value_flag(arg: &OsString) -> bool {
-    arg == "--prompt" || arg == "--observe-task"
+    arg == "--prompt" || arg == "--observe-task" || arg == "--workspace-root"
 }
 
 fn prompt_only(remaining: &[OsString]) -> bool {
@@ -206,6 +203,10 @@ mod continuation_tests {
                 "text"
             ]))
             .is_err()
+        );
+        assert_eq!(
+            arguments(&args(&["--workspace-root", "--headless"])),
+            Ok((false, args(&["--workspace-root", "--headless"])))
         );
         assert_eq!(
             arguments(&args(&["--continue", "--headless"])),
