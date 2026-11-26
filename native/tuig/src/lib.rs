@@ -23,6 +23,7 @@ pub mod task_output;
 pub mod task_stream;
 pub mod terminal_event;
 pub mod turn_usage;
+pub mod workstream;
 
 #[cfg(test)]
 #[path = "../tests/support/mod.rs"]

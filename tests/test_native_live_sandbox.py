@@ -195,3 +195,12 @@ def test_live_usage_read_is_refused_and_the_terminal_reads_unavailable(
     assert refused.value.code == 503, "bind R012.6.2 to a served usage proof"
     shown = compose(sandbox, "/usage", "Session")
     assert "Tokens: unavailable" in shown and "Cost: unavailable" in shown
+
+
+def test_live_release_serves_no_workstream_operation(sandbox: Sandbox) -> None:
+    served = sandbox.operations() & {
+        "workstream.attach",
+        "workstream.checkpoint",
+        "workstream.detach",
+    }
+    assert not served, "bind R013.1 and R013.2 to a served workstream proof"

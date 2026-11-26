@@ -14,6 +14,7 @@ use tuig_native::{
     ArboraClient, AuthMode, SUBMISSION_UNKNOWN, TaskSnapshot, TaskSubmission,
     correlation::{TaskCorrelation, TaskState},
     one_shot::{self, OneShotRequest},
+    workstream,
 };
 
 mod cli;
@@ -778,12 +779,44 @@ fn theme_selection() -> ThemeSelection {
     )
 }
 
+/// Run the local coding session, attached to the caller's workstream when
+/// `AGENT_URL` names an Arbora. A refused or unserved attach never blocks it.
+async fn run_local(mut local: local_runtime::Options) -> Result<(), &'static str> {
+    let client = match env::var("AGENT_URL") {
+        Ok(endpoint) if !local.headless => {
+            let (token, auth_mode) = caller_credential()?;
+            remote_client(&endpoint, token.as_deref(), auth_mode).ok()
+        }
+        _ => None,
+    };
+    let mut attached = None;
+    if let Some(client) = &client {
+        let root = match &local.root {
+            Some(root) => root.clone(),
+            None => env::current_dir()
+                .map(|dir| dir.to_string_lossy().into_owned())
+                .map_err(|_| "Cannot resolve the workspace root")?,
+        };
+        let (stream, context) = workstream::open(client, &root).await;
+        attached = stream;
+        local.context = Some(context).filter(|text| !text.is_empty());
+    }
+    let result = local_runtime::run(local, theme_selection()).await;
+    if let (Some(client), Some(stream)) = (&client, attached) {
+        let notice = workstream::close(client, stream).await;
+        if !notice.is_empty() {
+            report_error(&notice);
+        }
+    }
+    result
+}
+
 async fn launch_app(args: Vec<OsString>) -> Result<(), &'static str> {
     if let Some(local) = local_runtime::options(&args)? {
         if env::var_os("AGENT_TASK_ID").is_some() {
             return Err("Local runtime cannot be combined with AGENT_TASK_ID");
         }
-        return local_runtime::run(local, theme_selection()).await;
+        return run_local(local).await;
     }
     let endpoint = env::var("AGENT_URL").unwrap_or_else(|_| "http://localhost:8000".to_owned());
     if cli::one_shot(&args)? {

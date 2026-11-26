@@ -632,6 +632,7 @@ async fn settle_worker(
 
 async fn run_ui(mut options: Options, mut themes: ThemeSelection) -> Result<(), &'static str> {
     let initial = options.prompt.take();
+    let context = options.context.take();
     let (commands, command_rx) = mpsc::channel(1);
     let (update_tx, mut updates) = mpsc::channel(16);
     let (cancel, cancel_rx) = watch::channel(false);
@@ -648,6 +649,9 @@ async fn run_ui(mut options: Options, mut themes: ThemeSelection) -> Result<(), 
         tokio::task::spawn_local(session(options, command_rx, update_tx, cancel_rx, quit_rx));
     let mut ui = UiState::new();
     ui.initial = initial;
+    if let Some(context) = context {
+        ui.transcript.append(&format!("{context}\n"));
+    }
     let mut events = EventStream::new();
     let result = run_event_loop(
         &mut terminal,
