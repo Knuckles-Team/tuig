@@ -622,3 +622,201 @@ mod stream {
         assert_eq!(router.state().records().len(), 1);
     }
 }
+
+mod router {
+    use super::{Capability, TempDir};
+    use serde_json::{Value, json};
+    use std::collections::BTreeSet;
+    use tuig_native::acp::HostRequest;
+    use tuig_native::coding_approval::{ApprovalPreview, Choice};
+    use tuig_native::host_router::HostRouter;
+
+    fn request(method: &str, params: Value) -> HostRequest {
+        HostRequest {
+            id: json!(11),
+            method: method.to_owned(),
+            params,
+        }
+    }
+
+    fn open(root: &TempDir, capabilities: BTreeSet<Capability>) -> HostRouter {
+        let resolved = root.path().canonicalize().unwrap();
+        HostRouter::new("s", &resolved.to_string_lossy(), capabilities)
+    }
+
+    async fn answer(router: &mut HostRouter, request: HostRequest, choice: Choice) -> Value {
+        let mut ask = async |_preview: ApprovalPreview| choice;
+        router.handle(&request, &mut ask).await
+    }
+
+    fn reason(frame: &Value) -> &str {
+        frame["error"]["data"]["reason"].as_str().unwrap()
+    }
+
+    // spec: TUIG-RUNTIME-R011.8
+    #[tokio::test]
+    async fn reads_are_served_without_a_prompt_and_escapes_are_refused() {
+        let root = TempDir::create("router-read");
+        std::fs::write(root.path().join("a.txt"), "inside").unwrap();
+        let mut router = open(&root, Capability::ALL.into());
+        let mut prompted = false;
+        let mut ask = async |_preview: ApprovalPreview| {
+            prompted = true;
+            Choice::Deny
+        };
+        let served = router
+            .handle(
+                &request("fs/read_text_file", json!({"path": "a.txt"})),
+                &mut ask,
+            )
+            .await;
+        assert_eq!(served["result"]["content"], "inside");
+        let escaped = router
+            .handle(
+                &request("fs/read_text_file", json!({"path": "../a.txt"})),
+                &mut ask,
+            )
+            .await;
+        assert_eq!(reason(&escaped), "PATH_OUTSIDE_ROOT");
+        let missing = router
+            .handle(&request("fs/read_text_file", json!({})), &mut ask)
+            .await;
+        assert_eq!(reason(&missing), "CAPABILITY_NOT_GRANTED");
+        assert!(!prompted);
+    }
+
+    // spec: TUIG-RUNTIME-R011.8
+    #[tokio::test]
+    async fn ungranted_and_unknown_methods_are_refused_without_a_prompt() {
+        let root = TempDir::create("router-scope");
+        let mut router = open(&root, BTreeSet::from([Capability::ReadText]));
+        for method in ["fs/write_text_file", "terminal/create", "session/other"] {
+            let frame = answer(&mut router, request(method, json!({})), Choice::Approve).await;
+            assert_eq!(reason(&frame), "CAPABILITY_NOT_GRANTED");
+            assert_eq!(frame["id"], 11);
+        }
+    }
+
+    // spec: TUIG-RUNTIME-R011.8
+    #[tokio::test]
+    async fn a_denied_write_leaves_the_file_and_answers_with_the_denial() {
+        let root = TempDir::create("router-deny");
+        std::fs::write(root.path().join("a.txt"), "before").unwrap();
+        let mut router = open(&root, Capability::ALL.into());
+        let params = json!({"path": "a.txt", "content": "after"});
+        let frame = answer(
+            &mut router,
+            request("fs/write_text_file", params),
+            Choice::Deny,
+        )
+        .await;
+        assert_eq!(reason(&frame), "APPROVAL_DENIED");
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("a.txt")).unwrap(),
+            "before"
+        );
+        let missing = answer(
+            &mut router,
+            request("fs/write_text_file", json!({"path": "a.txt"})),
+            Choice::Approve,
+        )
+        .await;
+        assert!(missing.get("error").is_some());
+    }
+
+    // spec: TUIG-RUNTIME-R011.8
+    #[tokio::test]
+    async fn an_approved_command_streams_waits_and_is_killed_by_terminal_id() {
+        let root = TempDir::create("router-terminal");
+        let mut router = open(&root, Capability::ALL.into());
+        let mut shown = Vec::new();
+        let mut ask = async |preview: ApprovalPreview| {
+            shown.push(preview.text());
+            Choice::Approve
+        };
+        let created = router
+            .handle(
+                &request(
+                    "terminal/create",
+                    json!({"command": "printf", "args": ["it's %s", "a b"]}),
+                ),
+                &mut ask,
+            )
+            .await;
+        assert_eq!(created["result"]["terminalId"], "term-0");
+        let waited = router
+            .handle(
+                &request("terminal/wait_for_exit", json!({"terminalId": "term-0"})),
+                &mut ask,
+            )
+            .await;
+        assert_eq!(waited["result"]["exitCode"], 0);
+        let output = router
+            .handle(
+                &request("terminal/output", json!({"terminalId": "term-0"})),
+                &mut ask,
+            )
+            .await;
+        assert_eq!(output["result"]["output"], "it's a b");
+        assert_eq!(output["result"]["exitStatus"]["exitCode"], 0);
+        let sleeper = router
+            .handle(
+                &request(
+                    "terminal/create",
+                    json!({"command": "sleep", "args": ["30"]}),
+                ),
+                &mut ask,
+            )
+            .await;
+        assert_eq!(sleeper["result"]["terminalId"], "term-1");
+        let killed = router
+            .handle(
+                &request("terminal/kill", json!({"terminalId": "term-1"})),
+                &mut ask,
+            )
+            .await;
+        assert_eq!(killed["result"], Value::Null);
+        for bad in [
+            json!({"terminalId": "term-9"}),
+            json!({"terminalId": "nope"}),
+            json!({}),
+        ] {
+            let frame = router
+                .handle(&request("terminal/output", bad), &mut ask)
+                .await;
+            assert!(frame.get("error").is_some());
+        }
+        assert!(shown[0].contains("'a b'"));
+    }
+
+    // spec: TUIG-RUNTIME-R011.8
+    #[tokio::test]
+    async fn a_denied_or_malformed_command_spawns_nothing() {
+        let root = TempDir::create("router-command");
+        let mut router = open(&root, Capability::ALL.into());
+        let denied = answer(
+            &mut router,
+            request(
+                "terminal/create",
+                json!({"command": "touch", "args": ["made"]}),
+            ),
+            Choice::Deny,
+        )
+        .await;
+        assert_eq!(reason(&denied), "APPROVAL_DENIED");
+        for bad in [
+            json!({}),
+            json!({"command": "touch", "args": [1]}),
+            json!({"command": "touch", "cwd": ".."}),
+        ] {
+            let frame = answer(
+                &mut router,
+                request("terminal/create", bad),
+                Choice::Approve,
+            )
+            .await;
+            assert!(frame.get("error").is_some());
+        }
+        assert!(!root.path().join("made").exists());
+    }
+}
