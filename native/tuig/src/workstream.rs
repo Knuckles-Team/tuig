@@ -85,7 +85,15 @@ impl ArboraClient {
 
 /// Attach and return the session with the text to show above the first prompt.
 pub async fn open(client: &ArboraClient, workspace_root: &str) -> (Option<Workstream>, String) {
-    let Some(session_id) = session_identity() else {
+    open_as(client, workspace_root, session_identity()).await
+}
+
+async fn open_as(
+    client: &ArboraClient,
+    workspace_root: &str,
+    identity: Option<String>,
+) -> (Option<Workstream>, String) {
+    let Some(session_id) = identity else {
         return (
             None,
             "Workstream unavailable: no session identity.".to_owned(),
@@ -137,7 +145,8 @@ mod tests {
         assert_eq!(context_text(&json!({"context": "a\u{1b}b\nc"})), "ab\nc");
         let long = "é".repeat(5000);
         let bounded = context_text(&json!({ "context": long }));
-        assert!(bounded.len() <= CONTEXT_LIMIT && bounded.len() >= CONTEXT_LIMIT - 1);
+        assert!(bounded.len() <= CONTEXT_LIMIT);
+        assert!(bounded.len() >= CONTEXT_LIMIT - 1);
     }
 
     #[test]
@@ -148,7 +157,8 @@ mod tests {
             (ReadRefusal::Unavailable, "does not serve"),
         ] {
             let notice = refusal_notice("workstream.attach", &refusal);
-            assert!(notice.contains(words) && notice.contains("workstream.attach"));
+            assert!(notice.contains(words));
+            assert!(notice.contains("workstream.attach"));
         }
     }
 
@@ -156,6 +166,15 @@ mod tests {
     fn each_session_identity_is_distinct_hex() {
         let (a, b) = (session_identity().unwrap(), session_identity().unwrap());
         assert_ne!(a, b);
-        assert!(a.len() == 32 && a.bytes().all(|byte| byte.is_ascii_hexdigit()));
+        assert_eq!(a.len(), 32);
+        assert!(a.bytes().all(|byte| byte.is_ascii_hexdigit()));
+    }
+
+    #[tokio::test]
+    async fn a_missing_identity_attaches_nothing_and_says_so() {
+        let client = ArboraClient::new("http://127.0.0.1:9", Some("t")).unwrap();
+        let (stream, notice) = open_as(&client, "/r", None).await;
+        assert!(stream.is_none());
+        assert!(notice.contains("no session identity"));
     }
 }

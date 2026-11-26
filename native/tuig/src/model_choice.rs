@@ -18,13 +18,17 @@ pub struct ModelChoice(Arc<Mutex<Option<String>>>);
 
 impl ModelChoice {
     pub fn selected(&self) -> Option<String> {
-        self.0.lock().ok().and_then(|selected| selected.clone())
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
     pub fn set(&self, profile: Option<String>) {
-        if let Ok(mut selected) = self.0.lock() {
-            *selected = profile;
-        }
+        *self
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = profile;
     }
 }
 
