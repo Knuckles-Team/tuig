@@ -21,6 +21,7 @@ fn posted(requests: &support::Requests) -> Vec<(String, Value)> {
         .collect()
 }
 
+// spec: TUIG-RUNTIME-R013.1
 #[tokio::test]
 async fn attach_shows_the_served_context_and_exit_records_one_checkpoint_and_one_detach() {
     let served = [
