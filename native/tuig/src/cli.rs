@@ -32,6 +32,17 @@ pub fn arguments(args: &[OsString]) -> Result<(bool, Vec<OsString>), &'static st
     Ok((headless, remaining))
 }
 
+// contract: TUIG-RUNTIME-R002.8.1
+pub fn one_shot(args: &[OsString]) -> Result<bool, &'static str> {
+    match args {
+        [flag] if flag == "--one-shot" => Ok(true),
+        [flag, ..] if flag == "--one-shot" => {
+            Err("--one-shot reads its request from standard input and takes no other argument")
+        }
+        _ => Ok(false),
+    }
+}
+
 pub fn continuation(
     args: &[OsString],
     task_selected: bool,
@@ -110,6 +121,27 @@ mod tests {
         );
         assert!(arguments(&args(&["--headless"])).is_err());
         assert!(arguments(&args(&["--headless", "--headless", "--prompt", "x"])).is_err());
+    }
+}
+
+#[cfg(test)]
+mod one_shot_tests {
+    use super::*;
+
+    // spec: TUIG-RUNTIME-R002.8.1
+    #[test]
+    fn one_shot_is_the_only_argument_and_never_inherits_override() {
+        let args = |values: &[&str]| values.iter().map(OsString::from).collect::<Vec<_>>();
+        assert_eq!(one_shot(&args(&["--one-shot"])), Ok(true));
+        assert_eq!(one_shot(&args(&["--prompt", "--one-shot"])), Ok(false));
+        assert_eq!(one_shot(&args(&[])), Ok(false));
+        for values in [
+            vec!["--one-shot", "--override"],
+            vec!["--one-shot", "--prompt", "x"],
+            vec!["--one-shot", "--headless"],
+        ] {
+            assert!(one_shot(&args(&values)).is_err());
+        }
     }
 }
 

@@ -2,6 +2,7 @@ use std::{io::Write, time::Duration};
 use tuig_native::{
     ArboraClient, TaskSnapshot, TaskSubmission,
     correlation::{TaskCorrelation, TaskState},
+    one_shot::{Attestation, OneShotRequest, evidence},
 };
 
 fn result(state: TaskState) -> Result<bool, &'static str> {
@@ -59,6 +60,49 @@ async fn start(
                 .get_task(task_id.ok_or("Missing task identifier")?)
                 .await
         }
+    }
+}
+
+// contract: TUIG-RUNTIME-R002.8.2
+pub async fn one_shot(client: &ArboraClient, request: &OneShotRequest) -> Result<(), &'static str> {
+    let submission = TaskSubmission::tool_task(request);
+    tokio::select! {
+        biased;
+        _ = tokio::signal::ctrl_c() => Err("Detached from the one-shot task; no remote task was canceled."),
+        result = tokio::time::timeout(
+            Duration::from_secs(4 * 60 * 60),
+            observe_one_shot(client, request, &submission),
+        ) => result.map_err(|_| "Observation timed out. No remote task was canceled.")?,
+    }
+}
+
+async fn observe_one_shot(
+    client: &ArboraClient,
+    request: &OneShotRequest,
+    submission: &TaskSubmission,
+) -> Result<(), &'static str> {
+    let mut snapshot = client.submit_task(submission).await?;
+    let binding = snapshot.correlation.clone();
+    let mut previous = String::new();
+    loop {
+        check_binding(&snapshot, &binding)?;
+        let attestation = Attestation::evaluate(request, &snapshot, client.now_ms());
+        let display = format!(
+            "{}\n{}",
+            super::snapshot_status(&snapshot),
+            attestation.text()
+        );
+        if display != previous {
+            write_status(&display)?;
+            previous = display;
+        }
+        let outcome = result(snapshot.state);
+        if outcome != Ok(false) {
+            write_status(&evidence(request, &snapshot, &attestation))?;
+            return outcome.map(|_| ());
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        snapshot = client.refresh_task(&binding).await?;
     }
 }
 

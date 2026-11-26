@@ -39,7 +39,9 @@ line and the terminal views.
 | `coding_approval` | Approval requests, previews and fail-closed decisions |
 | `correlation` | Task, context and run identity binding |
 | `execution_graph` | Validated read of the run execution graph |
+| `host_effects` | Approved host writes and commands, typed refusals and session records |
 | `host_logs` | Host launch receipts and log reads |
+| `one_shot` | One-shot governed tool task request, attestation and evidence |
 | `operation_command` | Served operation invocation from the command line |
 | `plan_confirm` | Plan confirmation and its explicit decision |
 | `public_run_events` | Public run event reads |
