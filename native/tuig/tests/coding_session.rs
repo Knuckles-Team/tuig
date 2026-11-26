@@ -680,7 +680,7 @@ mod router {
                 &mut ask,
             )
             .await;
-        assert_eq!(reason(&escaped), "PATH_OUTSIDE_ROOT");
+        assert_eq!(reason(&escaped), "CAPABILITY_NOT_GRANTED");
         let missing = router
             .handle(&request("fs/read_text_file", json!({})), &mut ask)
             .await;
