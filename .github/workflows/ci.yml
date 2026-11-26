@@ -41,6 +41,8 @@ jobs:
               - 'native/**'
               - 'tests/test_native*.py'
               - 'scripts/verify_native_wheel.py'
+              - 'tests/live_sandbox.py'
+              - 'tests/fixtures/sandbox_model.py'
               - 'pyproject.toml'
               - 'uv.lock'
               - '.github/workflows/ci.yml'
@@ -160,6 +162,59 @@ jobs:
           uv run --frozen --no-sync --with agent-client-protocol==0.11.0 python -m pytest tests -q -rs --no-cov -p no:randomly --junitxml="$SUITE_RESULTS" || true
           python3 scripts/verify_suite_outcomes.py "$SUITE_RESULTS"
 
+  live-sandbox:
+    # The compiled terminal against the pinned Arbora release in its explicit
+    # no-auth mode: the released engine and server run as local services; only
+    # the upstream chat model is a loopback stand-in.
+    needs: [changes]
+    if: always() && (github.event_name != 'pull_request' || needs.changes.outputs.native == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 25 || 60 }}
+    env:
+      CARGO_BUILD_JOBS: 2
+      ARBORA_SANDBOX_RELEASE: '0.1.11'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native/tuig
+      - name: Rust toolchain
+        run: rustup toolchain install 1.96.0 --profile minimal
+      - name: Build the checkout's native terminal
+        run: cargo +1.96.0 build --locked --manifest-path native/tuig/Cargo.toml --bin tuig
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: '3.14'
+      - name: Install the pinned Arbora release into its own environment
+        run: |
+          set -euo pipefail
+          uv venv --python 3.14 "$RUNNER_TEMP/arbora-sandbox"
+          uv pip install --python "$RUNNER_TEMP/arbora-sandbox/bin/python" --only-binary :all: "arbora==${ARBORA_SANDBOX_RELEASE}"
+          uv pip check --python "$RUNNER_TEMP/arbora-sandbox/bin/python"
+      - name: Live-served journeys against the no-auth sandbox
+        env:
+          TUI_NATIVE_TEST_BINARY: ${{ github.workspace }}/native/tuig/target/debug/tuig
+          LIVE_RESULTS: ${{ runner.temp }}/live-sandbox-results.xml
+        run: |
+          set -euo pipefail
+          export TUI_LIVE_ARBORA_PYTHON="$RUNNER_TEMP/arbora-sandbox/bin/python"
+          uv sync --frozen --no-install-project --group test --python 3.14
+          uv run --frozen --no-sync pytest tests/test_native_live_sandbox.py -q -rP --no-cov -p no:randomly --junitxml="$LIVE_RESULTS"
+          python3 scripts/verify_live_outcomes.py "$LIVE_RESULTS"
+      - name: Retain the sandbox logs on failure
+        if: failure()
+        run: |
+          mkdir -p "$RUNNER_TEMP/sandbox-logs"
+          find /tmp/pytest-of-* -name '*.log' -exec cp --parents {} "$RUNNER_TEMP/sandbox-logs" \; || true
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: live-sandbox-logs
+          path: ${{ runner.temp }}/sandbox-logs
+          if-no-files-found: ignore
+
   cargo-advisories:
     needs: [changes]
     if: always() && (github.event_name != 'pull_request' || needs.changes.outputs.native == 'true')
@@ -234,7 +289,7 @@ jobs:
   ci-required:
     name: CI required
     if: always()
-    needs: [gates, main-gates, full, native-wheels, native-checks, cargo-advisories, native-coverage, docs-strict]
+    needs: [gates, main-gates, full, native-wheels, native-checks, live-sandbox, cargo-advisories, native-coverage, docs-strict]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
