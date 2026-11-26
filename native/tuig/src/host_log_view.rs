@@ -179,6 +179,7 @@ mod tests {
             lines: VecDeque::new(),
             status: "Reading",
             expires: 0,
+            clock: Clock::system(),
             viewport: Viewport::default(),
         };
         view.lines.push_back("protected".to_owned());
@@ -203,6 +204,7 @@ mod tests {
             lines: VecDeque::new(),
             status: "Reading",
             expires: 0,
+            clock: Clock::from_fn(|| 2),
             viewport: Viewport::default(),
         };
         view.lines.push_back("protected".to_owned());
