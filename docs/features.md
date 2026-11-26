@@ -20,6 +20,19 @@ starts another turn, even if the submission outcome is unknown.
 There is no Python slash-command fallback. Streaming, approval attachment,
 conversation continuation and durable resume remain open requirements.
 
+## One-shot tool tasks
+
+`tuig --one-shot` reads one JSON object from standard input. It needs `operation`
+and `parameters`. It may carry `idempotency_key` and `preapproval_ref`. Tuig
+submits one governed tool task through Arbora and prints its lifecycle, output
+and evidence. It never sends a retry. Ctrl+C detaches and does not cancel the task.
+
+Tuig refuses before submission when the Agent Card lacks the tool-task extension.
+A preapproval counts only when Arbora attests it for the same task and it has not
+expired. Without that attestation, the permission prompt stays in force and an
+input-required task ends the command with an error. The `--override` flag grants
+nothing here and cannot be combined with `--one-shot`.
+
 ## Local text sessions
 
 `tuig --local-runtime --local-model PROVIDER:MODEL` opens a local ACP session.
