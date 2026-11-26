@@ -38,7 +38,7 @@ fn refusal_notice(operation: &str, refusal: &ReadRefusal) -> String {
     let cause = match refusal {
         ReadRefusal::Denied => "refused this caller",
         ReadRefusal::Timeout => "did not answer in time",
-        ReadRefusal::Unavailable | ReadRefusal::WrongRun => "does not serve it to this caller",
+        _ => "does not serve it to this caller",
     };
     format!("Workstream unavailable: Arbora {cause}; operation {operation}.")
 }
@@ -103,6 +103,28 @@ pub async fn close(client: &ArboraClient, stream: Workstream) -> String {
         Ok(()) => String::new(),
         Err(refusal) => refusal_notice("workstream.checkpoint", &refusal),
     }
+}
+
+/// Attach when a client is configured; the context is `None` when there is nothing to show.
+pub async fn attach_optional(
+    client: Option<&ArboraClient>,
+    workspace_root: &str,
+) -> (Option<Workstream>, Option<String>) {
+    let attached =
+        futures_util::future::OptionFuture::from(client.map(|client| open(client, workspace_root)))
+            .await;
+    let (stream, context) = attached.unzip();
+    (stream.flatten(), context.filter(|text| !text.is_empty()))
+}
+
+/// Close an attached session; a session that never attached has nothing to write.
+pub async fn close_optional(client: Option<&ArboraClient>, stream: Option<Workstream>) -> String {
+    let closing = client
+        .zip(stream)
+        .map(|(client, stream)| close(client, stream));
+    futures_util::future::OptionFuture::from(closing)
+        .await
+        .unwrap_or_default()
 }
 
 #[cfg(test)]

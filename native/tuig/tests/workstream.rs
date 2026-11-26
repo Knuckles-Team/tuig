@@ -91,3 +91,29 @@ async fn a_refused_detach_after_a_recorded_checkpoint_is_reported() {
     assert!(notice.contains("Workstream unavailable"), "{notice}");
     assert_eq!(posted(&requests).len(), 2);
 }
+
+#[tokio::test]
+async fn without_a_client_nothing_attaches_and_nothing_is_written() {
+    let (stream, context) = workstream::attach_optional(None, "/r").await;
+    assert!(stream.is_none() && context.is_none());
+    assert_eq!(workstream::close_optional(None, None).await, "");
+}
+
+#[tokio::test]
+async fn a_configured_client_attaches_shows_a_nonempty_context_and_closes() {
+    let served = [
+        ("workstream.attach", json!({"context": "peer checkpoint"})),
+        ("workstream.checkpoint", json!({})),
+        ("workstream.detach", json!({})),
+    ];
+    let (url, requests) = fixture(&served, "alpha").await;
+    let client = client(&url);
+    let (stream, context) = workstream::attach_optional(Some(&client), "/r").await;
+    assert_eq!(context.as_deref(), Some("peer checkpoint"));
+    assert_eq!(workstream::close_optional(Some(&client), stream).await, "");
+    assert_eq!(posted(&requests).len(), 3);
+    let (url, _) = fixture(&[], "alpha").await;
+    let (stream, context) = workstream::attach_optional(Some(&self::client(&url)), "/r").await;
+    assert!(stream.is_none());
+    assert!(context.unwrap().contains("workstream.attach"));
+}

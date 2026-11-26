@@ -783,31 +783,29 @@ fn theme_selection() -> ThemeSelection {
 /// Run the local coding session, attached to the caller's workstream when
 /// `AGENT_WORKSTREAM` is set and `AGENT_URL` names an Arbora. A refused or unserved attach never blocks it.
 async fn run_local(mut local: local_runtime::Options) -> Result<(), &'static str> {
-    let client = match (env::var("AGENT_URL"), env::var_os("AGENT_WORKSTREAM")) {
-        (Ok(endpoint), Some(_)) if !local.headless => {
-            let (token, auth_mode) = caller_credential()?;
-            remote_client(&endpoint, token.as_deref(), auth_mode).ok()
-        }
-        _ => None,
-    };
-    let mut attached = None;
-    if let Some(client) = &client {
-        let root = match &local.root {
-            Some(root) => root.clone(),
-            None => env::current_dir()
+    let credential = caller_credential().ok();
+    let client = env::var_os("AGENT_WORKSTREAM")
+        .filter(|_| !local.headless)
+        .and_then(|_| env::var("AGENT_URL").ok())
+        .zip(credential)
+        .and_then(|(endpoint, (token, mode))| {
+            remote_client(&endpoint, token.as_deref(), mode).ok()
+        });
+    let root = local
+        .root
+        .clone()
+        .or_else(|| {
+            env::current_dir()
+                .ok()
                 .map(|dir| dir.to_string_lossy().into_owned())
-                .map_err(|_| "Cannot resolve the workspace root")?,
-        };
-        let (stream, context) = workstream::open(client, &root).await;
-        attached = stream;
-        local.context = Some(context).filter(|text| !text.is_empty());
-    }
+        })
+        .unwrap_or_default();
+    let (stream, context) = workstream::attach_optional(client.as_ref(), &root).await;
+    local.context = context;
     let result = local_runtime::run(local, theme_selection()).await;
-    if let (Some(client), Some(stream)) = (&client, attached) {
-        let notice = workstream::close(client, stream).await;
-        if !notice.is_empty() {
-            report_error(&notice);
-        }
+    let notice = workstream::close_optional(client.as_ref(), stream).await;
+    if !notice.is_empty() {
+        report_error(&notice);
     }
     result
 }

@@ -116,7 +116,7 @@ fn unavailable(spec: &CommandSpec, refusal: &ReadRefusal) -> String {
     let cause = match refusal {
         ReadRefusal::Denied => "refused this caller",
         ReadRefusal::Timeout => "did not answer in time",
-        ReadRefusal::Unavailable | ReadRefusal::WrongRun => "does not serve it to this caller",
+        _ => "does not serve it to this caller",
     };
     format!(
         "{} unavailable: Arbora {cause}; operation {}.",
@@ -125,7 +125,7 @@ fn unavailable(spec: &CommandSpec, refusal: &ReadRefusal) -> String {
 }
 
 fn render(value: &Value) -> String {
-    let text = serde_json::to_string_pretty(value).unwrap_or_default();
+    let text = format!("{value:#}");
     let mut shown: String = text
         .chars()
         .filter(|c| !c.is_control() || *c == '\n')
