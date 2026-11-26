@@ -58,7 +58,7 @@ for line in sys.stdin:
     with open(wire, "a") as out: out.write(json.dumps(message) + "\n")
     method = message["method"]
     if method == "initialize":
-        assert message["params"]["clientCapabilities"] == {}
+        assert message["params"]["clientCapabilities"] == {"fs":{"readTextFile":True,"writeTextFile":True},"terminal":True}
         capabilities = {"sessionCapabilities":{"close":{}}}
         reply(message, {"protocolVersion":1,"agentCapabilities":capabilities})
     elif method == "session/new": reply(message, {"sessionId":"local-session"})

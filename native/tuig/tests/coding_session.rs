@@ -516,3 +516,109 @@ fn test_evidence_record_has_no_secrets() {
     assert!(!evidence.contains("secret-body"));
     assert_eq!(state.records().len(), 1);
 }
+
+mod stream {
+    use super::{Capability, TempDir};
+    use serde_json::{Value, json};
+    use std::collections::BTreeSet;
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, split};
+    use tuig_native::acp::{HostRequest, TextClient};
+    use tuig_native::coding_approval::Choice;
+    use tuig_native::host_router::HostRouter;
+
+    fn all() -> BTreeSet<Capability> {
+        Capability::ALL.into()
+    }
+
+    // spec: TUIG-RUNTIME-R011.8
+    #[tokio::test]
+    async fn test_requests_reach_view_from_client_stream() {
+        let root = TempDir::create("stream");
+        let cwd = root.path().canonicalize().unwrap();
+        let cwd_text = cwd.to_string_lossy().into_owned();
+        let (local, remote) = tokio::io::duplex(8192);
+        let (reader, writer) = split(local);
+        let (remote_reader, mut remote_writer) = split(remote);
+        let agent_root = cwd_text.clone();
+        let agent = tokio::spawn(async move {
+            let mut lines = BufReader::new(remote_reader).lines();
+            let initialize: Value =
+                serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
+            assert_eq!(initialize["params"]["clientCapabilities"]["terminal"], true);
+            for frame in [
+                json!({"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}}),
+                json!({"jsonrpc":"2.0","id":2,"result":{"sessionId":"s"}}),
+            ] {
+                if frame["id"] == 2 {
+                    let create = lines.next_line().await.unwrap().unwrap();
+                    assert!(create.contains(&agent_root));
+                }
+                remote_writer
+                    .write_all(format!("{frame}\n").as_bytes())
+                    .await
+                    .unwrap();
+            }
+            let _prompt = lines.next_line().await.unwrap().unwrap();
+            let mut answers = Vec::new();
+            for (id, path) in [(7, "note.txt"), (8, "../outside.txt")] {
+                let request = json!({"jsonrpc":"2.0","id":id,"method":"fs/write_text_file","params":{"sessionId":"s","path":path,"content":"changed"}});
+                remote_writer
+                    .write_all(format!("{request}\n").as_bytes())
+                    .await
+                    .unwrap();
+                answers.push(
+                    serde_json::from_str::<Value>(&lines.next_line().await.unwrap().unwrap())
+                        .unwrap(),
+                );
+            }
+            let done = json!({"jsonrpc":"2.0","id":3,"result":{"stopReason":"end_turn"}});
+            remote_writer
+                .write_all(format!("{done}\n").as_bytes())
+                .await
+                .unwrap();
+            answers
+        });
+
+        let mut router = HostRouter::new("s", &cwd_text, all());
+        let mut client = TextClient::new(reader, writer).with_host_capabilities();
+        client.initialize(&cwd_text).await.unwrap();
+        client.prompt("edit").await.unwrap();
+        let mut shown = Vec::new();
+        let mut pending_ids = Vec::new();
+        let mut ask = async |preview: tuig_native::coding_approval::ApprovalPreview| {
+            shown.push(preview.text());
+            Choice::Approve
+        };
+        let result = client
+            .response_hosted(
+                3,
+                async |_| Ok(()),
+                async |request: HostRequest| {
+                    let frame = router.handle(&request, &mut ask).await;
+                    pending_ids.push(router.state().pending_request_id().map(str::to_owned));
+                    Some(frame)
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(result["stopReason"], "end_turn");
+
+        let answers = agent.await.unwrap();
+        assert_eq!(shown.len(), 1, "only the contained write reaches the view");
+        assert!(shown[0].contains("+changed"));
+        assert_eq!(
+            std::fs::read_to_string(cwd.join("note.txt")).unwrap(),
+            "changed"
+        );
+        assert_eq!(answers[0]["result"], Value::Null);
+        assert_eq!(answers[0]["id"], 7);
+        assert_eq!(answers[1]["error"]["data"]["reason"], "PATH_OUTSIDE_ROOT");
+        assert!(!cwd.parent().unwrap().join("outside.txt").exists());
+        assert_eq!(
+            pending_ids,
+            [None, None],
+            "each request is decided before the next"
+        );
+        assert_eq!(router.state().records().len(), 1);
+    }
+}

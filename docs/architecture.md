@@ -40,6 +40,7 @@ line and the terminal views.
 | `correlation` | Task, context and run identity binding |
 | `execution_graph` | Validated read of the run execution graph |
 | `host_effects` | Approved host writes and commands, typed refusals and session records |
+| `host_router` | Routes the agent's client-capability requests through containment and approval, and answers each over the wire |
 | `host_logs` | Host launch receipts and log reads |
 | `one_shot` | One-shot governed tool task request, attestation and evidence |
 | `operation_command` | Served operation invocation from the command line |

@@ -1,4 +1,5 @@
 use crate::{
+    coding_view::PendingApproval,
     composer::Composer,
     local_runtime::{Options, finish_backend, spawn_backend},
     presentation::{ThemeSelection, Viewport, accepts_key_event},
@@ -14,10 +15,15 @@ use ratatui::{
 };
 use std::{cell::Cell, io::Write, rc::Rc, time::Duration};
 use tokio::{
-    sync::{mpsc, watch},
+    sync::{mpsc, oneshot, watch},
     time::timeout,
 };
-use tuig_native::task_output::terminal_text;
+use tuig_native::{
+    acp::{HostRequest, TextClient},
+    coding_approval::{ApprovalPreview, Capability, Choice},
+    host_router::HostRouter,
+    task_output::terminal_text,
+};
 
 const TRANSCRIPT_BYTES: usize = 128 * 1024;
 const TURN_LIMIT: usize = 64;
@@ -63,6 +69,7 @@ impl<W: Write> Drop for TerminalOutput<W> {
 enum Update {
     Ready(&'static str),
     Text(String),
+    Approval(PendingApproval),
 }
 
 #[derive(Default)]
@@ -102,14 +109,15 @@ async fn deliver(
 }
 
 async fn turn<R: tokio::io::AsyncRead + Unpin, W: tokio::io::AsyncWrite + Unpin>(
-    client: &mut tuig_native::acp::TextClient<R, W>,
+    client: &mut TextClient<R, W>,
+    router: &mut HostRouter,
     text: &str,
     updates: &mpsc::Sender<Update>,
     cancel: &mut watch::Receiver<bool>,
     quit: &mut watch::Receiver<bool>,
 ) -> Result<&'static str, &'static str> {
     let id = submit_prompt(client, text, cancel, quit).await?;
-    let reply = wait_turn(client, id, updates, cancel, quit).await;
+    let reply = wait_turn(client, router, id, updates, cancel, quit).await;
     let value = match reply {
         TurnReply::Value(value) => value,
         TurnReply::Failed(message) => return Err(message),
@@ -144,21 +152,31 @@ async fn submit_prompt<R: tokio::io::AsyncRead + Unpin, W: tokio::io::AsyncWrite
 }
 
 async fn wait_turn<R: tokio::io::AsyncRead + Unpin, W: tokio::io::AsyncWrite + Unpin>(
-    client: &mut tuig_native::acp::TextClient<R, W>,
+    client: &mut TextClient<R, W>,
+    router: &mut HostRouter,
     id: u64,
     updates: &mpsc::Sender<Update>,
     cancel: &mut watch::Receiver<bool>,
     quit: &mut watch::Receiver<bool>,
 ) -> TurnReply {
+    let mut ask = async |preview: ApprovalPreview| {
+        let (reply, decision) = oneshot::channel();
+        let pending = Update::Approval(PendingApproval::new(preview, reply));
+        if updates.send(pending).await.is_err() {
+            return Choice::Deny;
+        }
+        decision.await.unwrap_or(Choice::Deny)
+    };
+    let host = async |request: HostRequest| Some(router.handle(&request, &mut ask).await);
     tokio::select! {
         biased;
         _ = signaled(quit) => TurnReply::Interrupted,
         _ = signaled(cancel) => TurnReply::Interrupted,
-        result = timeout(Duration::from_secs(330), client.response(id, |chunk: &str| {
+        result = timeout(Duration::from_secs(330), client.response_hosted(id, |chunk: &str| {
             let update = Update::Text(terminal_text(chunk));
             let updates = updates.clone();
             async move { updates.send(update).await.map_err(|_| "Local display closed") }
-        })) => match result {
+        }, host)) => match result {
             Ok(Ok(value)) => TurnReply::Value(value),
             Ok(Err(message)) => TurnReply::Failed(message),
             Err(_) => TurnReply::TimedOut,
@@ -202,13 +220,15 @@ async fn session(
     mut quit: watch::Receiver<bool>,
 ) -> Result<(), &'static str> {
     let (mut child, client, cwd) = spawn_backend(&options.model)?;
-    let mut client = client.with_sequential_turns();
+    let mut client = client.with_sequential_turns().with_host_capabilities();
     let result = async {
         tokio::select! {
             biased;
             _ = signaled(&mut quit) => return Ok(()),
             result = timeout(Duration::from_secs(30), client.initialize(&cwd)) => result.map_err(|_| "Local session initialization timed out")??,
         }
+        let session_id = client.session_id().ok_or("Local session identifier unavailable")?.to_owned();
+        let mut router = HostRouter::new(&session_id, &cwd, Capability::ALL.into());
         deliver(&updates, &mut quit, Update::Ready("Local session ready. p: compose a turn")).await?;
         for _ in 0..TURN_LIMIT {
             let text = tokio::select! {
@@ -217,7 +237,7 @@ async fn session(
                 result = client.idle() => return result,
                 command = commands.recv() => match command { Some(text) => text, None => return Ok(()) },
             };
-            let status = turn(&mut client, &text, &updates, &mut cancel, &mut quit).await?;
+            let status = turn(&mut client, &mut router, &text, &updates, &mut cancel, &mut quit).await?;
             if *quit.borrow() { return Ok(()); }
             deliver(&updates, &mut quit, Update::Ready(status)).await?;
         }
@@ -351,6 +371,7 @@ struct UiState {
     status: String,
     outcome: Result<(), &'static str>,
     worker_done: bool,
+    approval: Option<PendingApproval>,
 }
 
 impl UiState {
@@ -367,6 +388,7 @@ impl UiState {
             status: "Starting local ACP session...".to_owned(),
             outcome: Ok(()),
             worker_done: false,
+            approval: None,
         }
     }
 
@@ -380,6 +402,10 @@ impl UiState {
                 self.transcript.append(&text);
             }
             Update::Ready(message) => self.apply_ready(message, channels)?,
+            Update::Approval(pending) => {
+                self.status = "Approval pending. y: approve | n: deny".to_owned();
+                self.approval = Some(pending);
+            }
         }
         Ok(())
     }
@@ -471,11 +497,25 @@ impl UiState {
         if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
             return true;
         }
+        if let Some(pending) = self.approval.take() {
+            self.answer_approval(pending, key);
+            return false;
+        }
         if self.composer.open {
             self.composer_key(key, channels.commands);
             return false;
         }
         self.global_key(key, channels.cancel)
+    }
+
+    fn answer_approval(&mut self, pending: PendingApproval, key: KeyEvent) {
+        match pending.answer(key) {
+            Ok(choice) => {
+                self.status =
+                    format!("Request answered: {choice:?}. Local turn running... c: cancel");
+            }
+            Err(pending) => self.approval = Some(pending),
+        }
     }
 
     fn composer_key(&mut self, key: KeyEvent, commands: &mpsc::Sender<String>) {
@@ -526,6 +566,9 @@ fn draw_local(frame: &mut ratatui::Frame, ui: &mut UiState, themes: &ThemeSelect
             themes.border_style(),
             ui.follow,
         );
+    }
+    if let Some(pending) = &ui.approval {
+        pending.draw(frame);
     }
 }
 

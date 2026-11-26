@@ -5,6 +5,7 @@ pub mod correlation;
 pub mod execution_graph;
 pub mod host_effects;
 pub mod host_logs;
+pub mod host_router;
 pub mod app {
     pub use crate::host_logs::{HostLaunchReceipt, HostLogReader, run_host_terminal};
 }

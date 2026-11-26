@@ -9,11 +9,13 @@ use tuig_native::acp::{TextClient, completed};
 
 pub struct Options {
     pub model: String,
+    pub root: Option<String>,
     pub prompt: Option<String>,
     pub headless: bool,
 }
 
 // contract: TUIG-RUNTIME-R011.14
+// contract: TUIG-RUNTIME-R011.9
 pub fn options(args: &[OsString]) -> Result<Option<Options>, &'static str> {
     let mut flags = LocalArgs::default();
     let mut index = 0;
@@ -25,7 +27,7 @@ pub fn options(args: &[OsString]) -> Result<Option<Options>, &'static str> {
     }
     if flags.other {
         return Err(
-            "Local runtime accepts --local-model PROVIDER:MODEL, optional --prompt TEXT and --headless only",
+            "Local runtime accepts --local-model PROVIDER:MODEL, optional --workspace-root PATH, optional --prompt TEXT and --headless only",
         );
     }
     let model = flags
@@ -42,6 +44,7 @@ pub fn options(args: &[OsString]) -> Result<Option<Options>, &'static str> {
     }
     Ok(Some(Options {
         model,
+        root: flags.root,
         prompt: flags.prompt,
         headless: flags.headless,
     }))
@@ -53,6 +56,7 @@ struct LocalArgs {
     headless: bool,
     model: Option<String>,
     prompt: Option<String>,
+    root: Option<String>,
     other: bool,
 }
 
@@ -61,7 +65,9 @@ impl LocalArgs {
         match args[*index].to_str() {
             Some("--local-runtime") if !self.local => self.local = true,
             Some("--headless") if !self.headless => self.headless = true,
-            Some("--local-model") | Some("--prompt") => self.value_flag(args, index),
+            Some("--local-model") | Some("--prompt") | Some("--workspace-root") => {
+                self.value_flag(args, index)
+            }
             Some("--observe-task") => {
                 self.other = true;
                 *index += 1;
@@ -75,10 +81,10 @@ impl LocalArgs {
         let flag = args[*index].to_str();
         *index += 1;
         let value = args.get(*index).and_then(|arg| arg.to_str());
-        let target = if flag == Some("--local-model") {
-            &mut self.model
-        } else {
-            &mut self.prompt
+        let target = match flag {
+            Some("--local-model") => &mut self.model,
+            Some("--workspace-root") => &mut self.root,
+            _ => &mut self.prompt,
         };
         if target.is_some() || value.is_none() {
             self.other = true;
@@ -171,7 +177,7 @@ pub async fn run(options: Options, themes: ThemeSelection) -> Result<(), &'stati
         return crate::local_session::run(options, themes).await;
     }
     let output = Output::new()?;
-    let (mut child, mut client, cwd) = spawn_backend(&options.model)?;
+    let (mut child, mut client, cwd) = spawn_backend(&options.model, options.root.as_deref())?;
     let prompt = options.prompt.as_deref().ok_or("Missing local prompt")?;
     let result = tokio::select! {
         biased;
@@ -225,10 +231,17 @@ pub(super) type LocalClient = TextClient<tokio::process::ChildStdout, tokio::pro
 #[cfg(unix)]
 pub(super) fn spawn_backend(
     model: &str,
+    workspace_root: Option<&str>,
 ) -> Result<(tokio::process::Child, LocalClient, String), &'static str> {
-    let root = std::env::current_dir()
-        .and_then(std::fs::canonicalize)
-        .map_err(|_| "Cannot resolve local workspace")?;
+    let root = match workspace_root {
+        Some(path) => std::fs::canonicalize(path)
+            .ok()
+            .filter(|resolved| resolved.is_dir())
+            .ok_or("Workspace root must be an existing directory")?,
+        None => std::env::current_dir()
+            .and_then(std::fs::canonicalize)
+            .map_err(|_| "Cannot resolve local workspace")?,
+    };
     let cwd = root
         .to_str()
         .ok_or("Local workspace must be valid Unicode")?;
@@ -299,6 +312,49 @@ mod tests {
                 "--headless"
             ]))
             .is_err()
+        );
+    }
+
+    // spec: TUIG-RUNTIME-R011.9
+    #[test]
+    fn workspace_root_is_a_value_flag_of_the_local_runtime_only() {
+        let parsed = options(&args(&[
+            "--local-runtime",
+            "--local-model",
+            "test:model",
+            "--workspace-root",
+            "--headless",
+        ]))
+        .unwrap()
+        .unwrap();
+        assert_eq!(parsed.root.as_deref(), Some("--headless"));
+        let default = options(&args(&["--local-runtime", "--local-model", "test:model"]))
+            .unwrap()
+            .unwrap();
+        assert!(default.root.is_none());
+        for values in [
+            vec![
+                "--local-runtime",
+                "--local-model",
+                "test:model",
+                "--workspace-root",
+            ],
+            vec![
+                "--local-runtime",
+                "--local-model",
+                "test:model",
+                "--workspace-root",
+                "/a",
+                "--workspace-root",
+                "/b",
+            ],
+        ] {
+            assert!(options(&args(&values)).is_err());
+        }
+        assert!(
+            options(&args(&["--workspace-root", "/a"]))
+                .unwrap()
+                .is_none()
         );
     }
 

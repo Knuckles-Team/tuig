@@ -38,5 +38,10 @@ nothing here and cannot be combined with `--one-shot`.
 `tuig --local-runtime --local-model PROVIDER:MODEL` opens a local ACP session.
 Compose a turn with Enter. After acknowledgement, `p` opens the next draft;
 `c` cancels an active turn. The backend owns completed-text history within the
-process. Quitting closes that session. No central task inspector, permission
-grants or durable resume are available in this path. See [configuration](configuration.md).
+process. Quitting closes that session. In an interactive session the backend may
+ask the terminal to read a file, write a file or run a command inside the
+workspace root. A read inside the root is served without a prompt. A write shows
+its diff and a command shows its command line and directory, and each runs only
+after `y`; `n` or Escape denies it. A path outside the root is refused with
+`PATH_OUTSIDE_ROOT`. No central task inspector, permission grants or durable
+resume are available in this path. See [configuration](configuration.md).
