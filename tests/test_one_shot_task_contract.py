@@ -111,12 +111,7 @@ def _request(**changes) -> str:
     return json.dumps(body | changes)
 
 
-@pytest.mark.spec(
-    "TUIG-RUNTIME-R001.8",
-    "TUIG-RUNTIME-R002.8.2",
-    "TUIG-RUNTIME-R002.8.3",
-    "TUIG-RUNTIME-R002.8.5",
-)
+@pytest.mark.spec("TUIG-RUNTIME-R001.8", "TUIG-RUNTIME-R002.8.2", "TUIG-RUNTIME-R002.8.3", "TUIG-RUNTIME-R002.8.5")  # fmt: skip
 def test_one_shot_submits_once_and_reports_lifecycle_and_evidence():
     result, requests, cards = _run("completed", _attested(), extension=True, stdin=_request())
     assert result.returncode == 0, result.stderr
