@@ -68,7 +68,8 @@ def test_native_line_and_branch_coverage_are_measured_separately(tmp_path):
     job = jobs["native-coverage"]
     assert "native-coverage" in _required(jobs)
     run = _run_text(job)
-    assert "llvm-cov --branch" in run
+    assert "llvm-cov show-env --branch" in run and "llvm-cov report" in run
+    assert "tests/test_native_acp.py" in run
     assert "verify_native_coverage.py" in run
     assert any(step.get("uses", "").startswith("actions/upload-artifact") for step in job["steps"])
     assert _verify_coverage(tmp_path, _coverage(90, 85)).returncode == 0
