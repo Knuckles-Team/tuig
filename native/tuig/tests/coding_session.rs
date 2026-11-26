@@ -530,6 +530,73 @@ mod stream {
         Capability::ALL.into()
     }
 
+    /// Run one turn in which the agent sends a single callback request and
+    /// report the frame the client wrote back and the turn's outcome.
+    async fn callback_turn(
+        method: &'static str,
+        host_answers: bool,
+    ) -> (Value, Result<Value, &'static str>, bool) {
+        let (local, remote) = tokio::io::duplex(8192);
+        let (reader, writer) = split(local);
+        let (remote_reader, mut remote_writer) = split(remote);
+        let agent = tokio::spawn(async move {
+            let mut lines = BufReader::new(remote_reader).lines();
+            for (id, result) in [
+                (1, json!({"protocolVersion":1})),
+                (2, json!({"sessionId":"s"})),
+            ] {
+                lines.next_line().await.unwrap().unwrap();
+                let frame = json!({"jsonrpc":"2.0","id":id,"result":result});
+                remote_writer
+                    .write_all(format!("{frame}\n").as_bytes())
+                    .await
+                    .unwrap();
+            }
+            lines.next_line().await.unwrap().unwrap();
+            let request = json!({"jsonrpc":"2.0","id":9,"method":method,"params":{}});
+            remote_writer
+                .write_all(format!("{request}\n").as_bytes())
+                .await
+                .unwrap();
+            serde_json::from_str::<Value>(&lines.next_line().await.unwrap().unwrap()).unwrap()
+        });
+        let mut client = TextClient::new(reader, writer).with_host_capabilities();
+        assert_eq!(client.session_id(), None);
+        client.initialize("/workspace").await.unwrap();
+        assert_eq!(client.session_id(), Some("s"));
+        client.prompt("go").await.unwrap();
+        let mut consulted = false;
+        let outcome = client
+            .response_hosted(
+                3,
+                async |_| Ok(()),
+                async |request: HostRequest| {
+                    consulted = true;
+                    host_answers.then(|| json!({"jsonrpc":"2.0","id":request.id,"result":{}}))
+                },
+            )
+            .await;
+        (agent.await.unwrap(), outcome, consulted)
+    }
+
+    // spec: TUIG-RUNTIME-R011.8
+    #[tokio::test]
+    async fn an_unanswered_capability_request_keeps_the_refusal() {
+        let (frame, outcome, consulted) = callback_turn("fs/read_text_file", false).await;
+        assert!(consulted);
+        assert_eq!(frame["error"]["code"], -32601);
+        assert!(outcome.is_err());
+    }
+
+    // spec: TUIG-RUNTIME-R011.8
+    #[tokio::test]
+    async fn a_method_outside_the_closed_set_never_reaches_the_host() {
+        let (frame, outcome, consulted) = callback_turn("session/request_permission", true).await;
+        assert!(!consulted);
+        assert_eq!(frame["result"]["outcome"]["outcome"], "cancelled");
+        assert!(outcome.is_err());
+    }
+
     // spec: TUIG-RUNTIME-R011.8
     #[tokio::test]
     async fn test_requests_reach_view_from_client_stream() {
@@ -620,5 +687,293 @@ mod stream {
             "each request is decided before the next"
         );
         assert_eq!(router.state().records().len(), 1);
+    }
+}
+
+mod router {
+    use super::{Capability, TempDir};
+    use serde_json::{Value, json};
+    use std::collections::BTreeSet;
+    use tuig_native::acp::HostRequest;
+    use tuig_native::coding_approval::{ApprovalPreview, Choice};
+    use tuig_native::host_router::HostRouter;
+
+    fn request(method: &str, params: Value) -> HostRequest {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(11);
+        HostRequest {
+            id: json!(NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)),
+            method: method.to_owned(),
+            params,
+        }
+    }
+
+    fn open(root: &TempDir, capabilities: BTreeSet<Capability>) -> HostRouter {
+        let resolved = root.path().canonicalize().unwrap();
+        HostRouter::new("s", &resolved.to_string_lossy(), capabilities)
+    }
+
+    async fn answer(router: &mut HostRouter, request: HostRequest, choice: Choice) -> Value {
+        let mut ask = async |_preview: ApprovalPreview| choice;
+        router.handle(&request, &mut ask).await
+    }
+
+    fn reason(frame: &Value) -> &str {
+        frame["error"]["data"]["reason"].as_str().unwrap()
+    }
+
+    // spec: TUIG-RUNTIME-R011.8
+    #[tokio::test]
+    async fn reads_are_served_without_a_prompt_and_escapes_are_refused() {
+        let root = TempDir::create("router-read");
+        std::fs::write(root.path().join("a.txt"), "inside").unwrap();
+        let outside = TempDir::create("router-read-outside");
+        std::fs::write(outside.path().join("b.txt"), "outside").unwrap();
+        let mut router = open(&root, Capability::ALL.into());
+        let mut prompted = false;
+        let mut ask = async |_preview: ApprovalPreview| {
+            prompted = true;
+            Choice::Deny
+        };
+        let served = router
+            .handle(
+                &request("fs/read_text_file", json!({"path": "a.txt"})),
+                &mut ask,
+            )
+            .await;
+        assert_eq!(served["result"]["content"], "inside");
+        let escaped = router
+            .handle(
+                &request("fs/read_text_file", json!({"path": "../a.txt"})),
+                &mut ask,
+            )
+            .await;
+        assert_eq!(reason(&escaped), "CAPABILITY_NOT_GRANTED");
+        let missing = router
+            .handle(&request("fs/read_text_file", json!({})), &mut ask)
+            .await;
+        assert_eq!(reason(&missing), "CAPABILITY_NOT_GRANTED");
+        assert!(!prompted);
+    }
+
+    // spec: TUIG-RUNTIME-R011.8
+    #[tokio::test]
+    async fn ungranted_and_unknown_methods_are_refused_without_a_prompt() {
+        let root = TempDir::create("router-scope");
+        let mut router = open(&root, BTreeSet::from([Capability::ReadText]));
+        for method in ["fs/write_text_file", "terminal/create", "session/other"] {
+            let frame = answer(&mut router, request(method, json!({})), Choice::Approve).await;
+            assert_eq!(reason(&frame), "CAPABILITY_NOT_GRANTED");
+            assert!(frame["id"].is_u64());
+        }
+    }
+
+    // spec: TUIG-RUNTIME-R011.8
+    #[tokio::test]
+    async fn a_denied_write_leaves_the_file_and_answers_with_the_denial() {
+        let root = TempDir::create("router-deny");
+        std::fs::write(root.path().join("a.txt"), "before").unwrap();
+        let mut router = open(&root, Capability::ALL.into());
+        let params = json!({"path": "a.txt", "content": "after"});
+        let frame = answer(
+            &mut router,
+            request("fs/write_text_file", params),
+            Choice::Deny,
+        )
+        .await;
+        assert_eq!(reason(&frame), "APPROVAL_DENIED");
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("a.txt")).unwrap(),
+            "before"
+        );
+        let missing = answer(
+            &mut router,
+            request("fs/write_text_file", json!({"path": "a.txt"})),
+            Choice::Approve,
+        )
+        .await;
+        assert!(missing.get("error").is_some());
+    }
+
+    // spec: TUIG-RUNTIME-R011.8
+    #[tokio::test]
+    async fn an_approved_command_streams_waits_and_is_killed_by_terminal_id() {
+        let root = TempDir::create("router-terminal");
+        let mut router = open(&root, Capability::ALL.into());
+        let mut shown = Vec::new();
+        let mut ask = async |preview: ApprovalPreview| {
+            shown.push(preview.text());
+            Choice::Approve
+        };
+        let created = router
+            .handle(
+                &request(
+                    "terminal/create",
+                    json!({"command": "printf", "args": ["it's %s", "a b"]}),
+                ),
+                &mut ask,
+            )
+            .await;
+        assert_eq!(created["result"]["terminalId"], "term-0");
+        let waited = router
+            .handle(
+                &request("terminal/wait_for_exit", json!({"terminalId": "term-0"})),
+                &mut ask,
+            )
+            .await;
+        assert_eq!(waited["result"]["exitCode"], 0);
+        let output = router
+            .handle(
+                &request("terminal/output", json!({"terminalId": "term-0"})),
+                &mut ask,
+            )
+            .await;
+        assert_eq!(output["result"]["output"], "it's a b");
+        assert_eq!(output["result"]["exitStatus"]["exitCode"], 0);
+        let sleeper = router
+            .handle(
+                &request(
+                    "terminal/create",
+                    json!({"command": "sleep", "args": ["30"]}),
+                ),
+                &mut ask,
+            )
+            .await;
+        assert_eq!(sleeper["result"]["terminalId"], "term-1");
+        let killed = router
+            .handle(
+                &request("terminal/kill", json!({"terminalId": "term-1"})),
+                &mut ask,
+            )
+            .await;
+        assert_eq!(killed["result"], Value::Null);
+        for bad in [
+            json!({"terminalId": "term-9"}),
+            json!({"terminalId": "nope"}),
+            json!({}),
+        ] {
+            let frame = router
+                .handle(&request("terminal/output", bad), &mut ask)
+                .await;
+            assert!(frame.get("error").is_some());
+        }
+        assert!(shown[0].contains("'a b'"));
+    }
+
+    // spec: TUIG-RUNTIME-R011.8
+    #[tokio::test]
+    async fn a_denied_or_malformed_command_spawns_nothing() {
+        let root = TempDir::create("router-command");
+        let mut router = open(&root, Capability::ALL.into());
+        let denied = answer(
+            &mut router,
+            request(
+                "terminal/create",
+                json!({"command": "touch", "args": ["made"]}),
+            ),
+            Choice::Deny,
+        )
+        .await;
+        assert_eq!(reason(&denied), "APPROVAL_DENIED");
+        for bad in [
+            json!({}),
+            json!({"command": "touch", "args": [1]}),
+            json!({"command": "touch", "cwd": ".."}),
+        ] {
+            let frame = answer(
+                &mut router,
+                request("terminal/create", bad),
+                Choice::Approve,
+            )
+            .await;
+            assert!(frame.get("error").is_some());
+        }
+        assert!(!root.path().join("made").exists());
+    }
+}
+
+mod malformed {
+    use serde_json::{Value, json};
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, split};
+    use tuig_native::acp::TextClient;
+
+    /// The turn outcome when the agent answers the prompt with one odd frame.
+    async fn turn_with(frame: Value) -> Result<Value, &'static str> {
+        let (local, remote) = tokio::io::duplex(8192);
+        let (reader, writer) = split(local);
+        let (remote_reader, mut remote_writer) = split(remote);
+        tokio::spawn(async move {
+            let mut lines = BufReader::new(remote_reader).lines();
+            for (id, result) in [
+                (1, json!({"protocolVersion":1})),
+                (2, json!({"sessionId":"s"})),
+            ] {
+                lines.next_line().await.unwrap().unwrap();
+                let reply = json!({"jsonrpc":"2.0","id":id,"result":result});
+                remote_writer
+                    .write_all(format!("{reply}\n").as_bytes())
+                    .await
+                    .unwrap();
+            }
+            lines.next_line().await.unwrap().unwrap();
+            remote_writer
+                .write_all(format!("{frame}\n").as_bytes())
+                .await
+                .unwrap();
+            let _ = lines.next_line().await;
+        });
+        let mut client = TextClient::new(reader, writer).with_host_capabilities();
+        client.initialize("/workspace").await.unwrap();
+        client.prompt("go").await.unwrap();
+        client.response(3, async |_| Ok(())).await
+    }
+
+    fn update(content: Value) -> Value {
+        json!({"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":{"sessionUpdate":"agent_message_chunk","content":content}}})
+    }
+
+    // spec: TUIG-RUNTIME-R011.8
+    #[tokio::test]
+    async fn malformed_agent_frames_fail_closed() {
+        let cases = [
+            (
+                json!({"jsonrpc":"2.0","method":"session/update","result":{}}),
+                "Invalid ACP method envelope",
+            ),
+            (
+                json!({"jsonrpc":"2.0","id":1.5,"method":"fs/read_text_file","params":{}}),
+                "Invalid ACP callback identifier",
+            ),
+            (
+                json!({"jsonrpc":"2.0","method":"session/other","params":{}}),
+                "Unsupported ACP notification",
+            ),
+            (
+                update(json!({"type":"image","text":"x"})),
+                "Unsupported ACP session update",
+            ),
+            (
+                update(json!({"type":"text","text":7})),
+                "Invalid ACP text update",
+            ),
+            (
+                json!({"jsonrpc":"1.0","id":3,"result":{}}),
+                "Invalid ACP envelope",
+            ),
+            (
+                json!({"jsonrpc":"2.0","id":3,"result":{},"error":{}}),
+                "Mismatched ACP response",
+            ),
+            (
+                json!({"jsonrpc":"2.0","id":3,"error":{"code":1,"message":"x"}}),
+                "Arbora ACP refused the request; no automatic retry",
+            ),
+            (
+                json!({"jsonrpc":"2.0","id":3,"result":[]}),
+                "Invalid ACP result",
+            ),
+        ];
+        for (frame, expected) in cases {
+            assert_eq!(turn_with(frame).await, Err(expected));
+        }
     }
 }
