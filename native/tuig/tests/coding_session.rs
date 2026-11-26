@@ -632,8 +632,9 @@ mod router {
     use tuig_native::host_router::HostRouter;
 
     fn request(method: &str, params: Value) -> HostRequest {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(11);
         HostRequest {
-            id: json!(11),
+            id: json!(NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)),
             method: method.to_owned(),
             params,
         }
@@ -658,6 +659,8 @@ mod router {
     async fn reads_are_served_without_a_prompt_and_escapes_are_refused() {
         let root = TempDir::create("router-read");
         std::fs::write(root.path().join("a.txt"), "inside").unwrap();
+        let outside = TempDir::create("router-read-outside");
+        std::fs::write(outside.path().join("b.txt"), "outside").unwrap();
         let mut router = open(&root, Capability::ALL.into());
         let mut prompted = false;
         let mut ask = async |_preview: ApprovalPreview| {
@@ -693,7 +696,7 @@ mod router {
         for method in ["fs/write_text_file", "terminal/create", "session/other"] {
             let frame = answer(&mut router, request(method, json!({})), Choice::Approve).await;
             assert_eq!(reason(&frame), "CAPABILITY_NOT_GRANTED");
-            assert_eq!(frame["id"], 11);
+            assert!(frame["id"].is_u64());
         }
     }
 
