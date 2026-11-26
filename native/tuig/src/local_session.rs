@@ -219,7 +219,7 @@ async fn session(
     mut cancel: watch::Receiver<bool>,
     mut quit: watch::Receiver<bool>,
 ) -> Result<(), &'static str> {
-    let (mut child, client, cwd) = spawn_backend(&options.model)?;
+    let (mut child, client, cwd) = spawn_backend(&options.model, options.root.as_deref())?;
     let mut client = client.with_sequential_turns().with_host_capabilities();
     let result = async {
         tokio::select! {
