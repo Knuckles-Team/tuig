@@ -30,9 +30,9 @@ mod public_details_view;
 mod session;
 mod spatial_graph;
 mod task_history_view;
-use presentation::Viewport;
 #[cfg(test)]
 use presentation::presentation_style;
+use presentation::{ThemeSelection, Viewport};
 use public_details_view::PublicDetailsView;
 use task_history_view::TaskHistoryView;
 
@@ -540,6 +540,7 @@ async fn run(
     task_id: Option<String>,
     submission: Option<TaskSubmission>,
     observe: bool,
+    themes: ThemeSelection,
 ) -> Result<(), &'static str> {
     let mut terminal = ratatui::init();
     if enable_terminal_input(&mut std::io::stdout()).is_err() {
@@ -547,7 +548,7 @@ async fn run(
         return Err("Cannot enable terminal input");
     }
     let (mut session, mut request) =
-        session::Session::new(client.clone(), task_id, submission, observe);
+        session::Session::new(client.clone(), task_id, submission, observe, themes);
     let mut events = EventStream::new();
     let mut observation_tick = tokio::time::interval(std::time::Duration::from_millis(500));
     observation_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -696,11 +697,12 @@ async fn launch(
     observe: bool,
     task_id: Option<String>,
     submission: Option<TaskSubmission>,
+    themes: ThemeSelection,
 ) -> Result<(), &'static str> {
     if headless {
         headless::run(&client, task_id.as_deref(), submission.as_ref()).await
     } else {
-        run(Arc::new(client), task_id, submission, observe).await
+        run(Arc::new(client), task_id, submission, observe, themes).await
     }
 }
 
@@ -725,16 +727,34 @@ fn help_requested(args: &[OsString]) -> bool {
     matches!(args, [flag] if flag == "--help" || flag == "-h")
 }
 
+fn theme_selection() -> ThemeSelection {
+    ThemeSelection::new(
+        &env::var("AGENT_THEME").unwrap_or_else(|_| "tokyo-night".to_owned()),
+        &env::var("NO_COLOR").unwrap_or_default(),
+    )
+}
+
 async fn launch_app(args: Vec<OsString>) -> Result<(), &'static str> {
     if let Some(local) = local_runtime::options(&args)? {
-        return local_runtime::run(local).await;
+        if env::var_os("AGENT_TASK_ID").is_some() {
+            return Err("Local runtime cannot be combined with AGENT_TASK_ID");
+        }
+        return local_runtime::run(local, theme_selection()).await;
     }
     let endpoint = env::var("AGENT_URL").unwrap_or_else(|_| "http://localhost:8000".to_owned());
     let (headless, args) = cli::arguments(&args)?;
     let (token, auth_mode) = caller_credential()?;
     let (observe, task_id, submission) = launch_targets(&args, token.is_some(), auth_mode)?;
     let client = remote_client(&endpoint, token.as_deref(), auth_mode)?;
-    launch(client, headless, observe, task_id, submission).await
+    launch(
+        client,
+        headless,
+        observe,
+        task_id,
+        submission,
+        theme_selection(),
+    )
+    .await
 }
 
 fn report_error(error: &str) {

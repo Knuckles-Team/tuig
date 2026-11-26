@@ -89,7 +89,7 @@ def test_docs_only_pull_requests_run_the_spec_gate_in_the_shared_job():
     # The shared gates workflow classifies each change itself; the opt-in
     # docs-only-paths input no longer exists (pipelines PIPE-RELEASE-R007.11).
     assert "docs-only-paths" not in job["with"]
-    assert "spec" not in job["with"]["skip-hooks"].split(",")
+    assert "spec" not in job["with"].get("skip-hooks", "").split(",")
 
 
 def test_ci_required_aggregates_every_blocking_job_and_skips_native_on_prs():
@@ -129,9 +129,8 @@ def _generated_status() -> dict:
 @pytest.mark.parametrize(
     ("ancestor", "retained"),
     [
-        ("TUIG-RUNTIME-R008", "TUIG-RUNTIME-R008.3.2"),
+        ("TUIG-RUNTIME-R008", "TUIG-RUNTIME-R008.2.3.2.2.4"),
         ("TUIG-RUNTIME-R008.2", "TUIG-RUNTIME-R008.2.3.2.2.2.2.2.2"),
-        ("TUIG-RUNTIME-R008.3", "TUIG-RUNTIME-R008.3.2"),
         ("TUIG-RUNTIME-R010", "TUIG-RUNTIME-R010.12.2"),
         ("TUIG-RUNTIME-R010", "TUIG-RUNTIME-R010.14"),
         ("TUIG-RUNTIME-R010.12", "TUIG-RUNTIME-R010.12.2"),
