@@ -22,7 +22,8 @@ use ratatui::Frame;
 use std::sync::Arc;
 use tuig_native::{
     ArboraClient, TaskSnapshot, TaskSubmission, correlation::TaskCorrelation,
-    operation_command::OperationCommand, plan_confirm::PlanBinding,
+    model_choice::ModelChoice, operation_command::OperationCommand, plan_confirm::PlanBinding,
+    served_command::ServedCommand,
 };
 
 pub type ReadRequest = tokio::task::JoinHandle<Result<ReadStatus, &'static str>>;
@@ -61,6 +62,7 @@ pub struct Session {
     status: String,
     binding: Option<TaskCorrelation>,
     latest_task: Option<TaskSnapshot>,
+    model: ModelChoice,
     cancellation: Cancellation,
     remote_cancel: bool,
     submission_unknown: bool,
@@ -123,6 +125,7 @@ impl Session {
                 status,
                 binding: None,
                 latest_task: None,
+                model: ModelChoice::default(),
                 cancellation: Cancellation::default(),
                 remote_cancel: false,
                 submission_unknown: false,
@@ -471,6 +474,22 @@ impl Session {
         });
         self.pending = true;
     }
+    fn spawn_served_command(&mut self, request: &mut ReadRequest, command: ServedCommand) {
+        request.abort();
+        let client = self.client.clone();
+        let model = self.model.clone();
+        let turn = self
+            .latest_task
+            .as_ref()
+            .map_or_else(|| "unavailable".to_owned(), |task| task.usage.text());
+        self.status = "Reading served Arbora operation...".to_owned();
+        *request = tokio::spawn(async move {
+            Ok(ReadStatus::Operation(
+                command.run(&client, &model, &turn).await,
+            ))
+        });
+        self.pending = true;
+    }
     fn spawn_plan_confirmation(
         &mut self,
         request: &mut ReadRequest,
@@ -507,6 +526,10 @@ impl Session {
             self.spawn_operation(request, &command);
             return Ok(());
         }
+        if let Some(command) = ServedCommand::parse(&text) {
+            self.spawn_served_command(request, command);
+            return Ok(());
+        }
         if text.trim() == "/confirm" {
             request.abort();
             let issued = self.latest_task.as_ref().and_then(|task| task.plan.clone());
@@ -520,7 +543,7 @@ impl Session {
             self.history.open(self.client.clone());
             return Ok(());
         }
-        let submission = TaskSubmission::new(&text)?;
+        let submission = TaskSubmission::new(&text)?.with_model_profile(self.model.selected());
         request.abort();
         let client = self.client.clone();
         *request =

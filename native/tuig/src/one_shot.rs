@@ -293,6 +293,7 @@ mod tests {
             usage: Default::default(),
             plan: None,
             tool_task: ToolTaskMetadata::from_task(&task),
+            model_profile: None,
         }
     }
 

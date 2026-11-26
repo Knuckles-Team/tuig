@@ -360,8 +360,13 @@ fn snapshot_status(snapshot: &TaskSnapshot) -> String {
     } else {
         ""
     };
+    let profile = snapshot
+        .model_profile
+        .as_deref()
+        .map(|profile| format!("Model profile: {profile}\n"))
+        .unwrap_or_default();
     format!(
-        "Task ID: {}\nContext ID: {}\nRun ID: {}\nState: {state}\n{approval}\n{}\n\n{}\n\n{}",
+        "Task ID: {}\nContext ID: {}\nRun ID: {}\n{profile}State: {state}\n{approval}\n{}\n\n{}\n\n{}",
         snapshot.correlation.task_id(),
         snapshot.correlation.context_id(),
         snapshot.correlation.run_id().unwrap_or("unavailable"),
@@ -992,6 +997,7 @@ mod tests {
             state: TaskState::Working,
             plan: None,
             tool_task: Default::default(),
+            model_profile: None,
         })
     }
 
@@ -1286,6 +1292,7 @@ mod tests {
                 state: TaskState::Working,
                 plan: None,
                 tool_task: Default::default(),
+                model_profile: None,
             };
             terminal
                 .draw(|frame| draw(frame, &snapshot_status(&snapshot), Style::default()))
@@ -1339,6 +1346,7 @@ mod tests {
             state: TaskState::InputRequired,
             plan: None,
             tool_task: Default::default(),
+            model_profile: None,
         };
         let status = snapshot_status(&snapshot);
         assert!(status.contains("State: input-required"));
@@ -1779,6 +1787,7 @@ mod terminal_point_view_tests {
             state: TaskState::Completed,
             plan: None,
             tool_task: Default::default(),
+            model_profile: None,
         };
         let mut binding = None;
         let status = completed_status(Ok(Ok(ReadStatus::Task(snapshot))), &mut binding);

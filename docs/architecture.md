@@ -42,6 +42,7 @@ line and the terminal views.
 | `host_effects` | Approved host writes and commands, typed refusals and session records |
 | `host_router` | Routes the agent's client-capability requests through containment and approval, and answers each over the wire |
 | `host_logs` | Host launch receipts and log reads |
+| `model_choice` | Model profile list, preference and displayed profile |
 | `one_shot` | One-shot governed tool task request, attestation and evidence |
 | `operation_command` | Served operation invocation from the command line |
 | `plan_confirm` | Plan confirmation and its explicit decision |
@@ -49,6 +50,7 @@ line and the terminal views.
 | `recovery` | Resume after an unknown submission outcome |
 | `run_inspector` | Read-only run inspector state |
 | `run_inspector_client` | Served run reads for the inspector |
+| `served_command` | Slash commands that reach served operations |
 | `task_history` | Paged task history reads |
 | `task_output` | Task output extraction and bounds |
 | `task_stream` | Task observation transport |
