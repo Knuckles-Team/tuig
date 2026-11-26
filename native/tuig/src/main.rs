@@ -13,6 +13,7 @@ use std::{env, ffi::OsString, process::ExitCode, sync::Arc};
 use tuig_native::{
     ArboraClient, AuthMode, SUBMISSION_UNKNOWN, TaskSnapshot, TaskSubmission,
     correlation::{TaskCorrelation, TaskState},
+    one_shot::{self, OneShotRequest},
 };
 
 mod cli;
@@ -573,6 +574,7 @@ const CLI_HELP: &str = "Tuig: native Arbora terminal
 Usage: tuig [--headless] [--prompt TEXT | --observe-task TASK_ID]
        tuig --local-runtime --local-model PROVIDER:MODEL [--prompt TEXT]
        tuig --local-runtime --local-model PROVIDER:MODEL --headless --prompt TEXT
+       tuig --one-shot < REQUEST.json
        tuig --help
 
 Options:
@@ -581,6 +583,9 @@ Options:
   --prompt TEXT           Submit one text task (1..65536 bytes).
   --continue CONTEXT_ID   Continue an advertised durable context with --prompt.
   --observe-task TASK_ID   Observe an existing task without remote cancellation.
+  --one-shot              Submit one governed tool task read as a JSON object from standard
+                          input: operation, parameters, optional idempotency_key and
+                          preapproval_ref. Prints its lifecycle and evidence.
   --local-runtime         Spawn internal arbora-acp (POSIX, 16 KiB prompt).
   --local-model VALUE     Provider:model for explicit local runtime only.
   -h, --help              Print this help without connecting or opening a terminal.
@@ -727,6 +732,37 @@ fn help_requested(args: &[OsString]) -> bool {
     matches!(args, [flag] if flag == "--help" || flag == "-h")
 }
 
+async fn read_one_shot_request() -> Result<Vec<u8>, &'static str> {
+    use std::io::Read;
+    tokio::task::spawn_blocking(|| {
+        let mut input = Vec::new();
+        std::io::stdin()
+            .take(one_shot::MAX_REQUEST_BYTES as u64 + 1)
+            .read_to_end(&mut input)
+            .map(|_| input)
+    })
+    .await
+    .map_err(|_| "Cannot read the one-shot request")?
+    .map_err(|_| "Cannot read the one-shot request")
+}
+
+// contract: TUIG-RUNTIME-R002.8.3
+async fn run_one_shot(endpoint: &str) -> Result<(), &'static str> {
+    if env::var_os("AGENT_TASK_ID").is_some() {
+        return Err("--one-shot cannot be combined with AGENT_TASK_ID");
+    }
+    let (token, auth_mode) = caller_credential()?;
+    require_credential(
+        true,
+        token.is_some(),
+        auth_mode,
+        "Submission requires a caller credential",
+    )?;
+    let request = OneShotRequest::parse(&read_one_shot_request().await?)?;
+    let client = remote_client(endpoint, token.as_deref(), auth_mode)?;
+    headless::one_shot(&client, &request).await
+}
+
 fn theme_selection() -> ThemeSelection {
     ThemeSelection::new(
         &env::var("AGENT_THEME").unwrap_or_else(|_| "tokyo-night".to_owned()),
@@ -742,6 +778,9 @@ async fn launch_app(args: Vec<OsString>) -> Result<(), &'static str> {
         return local_runtime::run(local, theme_selection()).await;
     }
     let endpoint = env::var("AGENT_URL").unwrap_or_else(|_| "http://localhost:8000".to_owned());
+    if cli::one_shot(&args)? {
+        return run_one_shot(&endpoint).await;
+    }
     let (headless, args) = cli::arguments(&args)?;
     let (token, auth_mode) = caller_credential()?;
     let (observe, task_id, submission) = launch_targets(&args, token.is_some(), auth_mode)?;
@@ -949,6 +988,7 @@ mod tests {
             correlation: TaskCorrelation::from_task(&task).unwrap(),
             state: TaskState::Working,
             plan: None,
+            tool_task: Default::default(),
         })
     }
 
@@ -1242,6 +1282,7 @@ mod tests {
                 correlation: TaskCorrelation::from_task(&task).unwrap(),
                 state: TaskState::Working,
                 plan: None,
+                tool_task: Default::default(),
             };
             terminal
                 .draw(|frame| draw(frame, &snapshot_status(&snapshot), Style::default()))
@@ -1294,6 +1335,7 @@ mod tests {
             correlation: TaskCorrelation::from_task(&task).unwrap(),
             state: TaskState::InputRequired,
             plan: None,
+            tool_task: Default::default(),
         };
         let status = snapshot_status(&snapshot);
         assert!(status.contains("State: input-required"));
@@ -1733,6 +1775,7 @@ mod terminal_point_view_tests {
             correlation,
             state: TaskState::Completed,
             plan: None,
+            tool_task: Default::default(),
         };
         let mut binding = None;
         let status = completed_status(Ok(Ok(ReadStatus::Task(snapshot))), &mut binding);

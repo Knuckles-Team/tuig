@@ -3,10 +3,12 @@ pub mod clock;
 pub mod coding_approval;
 pub mod correlation;
 pub mod execution_graph;
+pub mod host_effects;
 pub mod host_logs;
 pub mod app {
     pub use crate::host_logs::{HostLaunchReceipt, HostLogReader, run_host_terminal};
 }
+pub mod one_shot;
 pub mod operation_command;
 pub mod plan_confirm;
 pub mod public_run_events;
@@ -53,6 +55,7 @@ pub struct TaskSubmission {
     prompt: String,
     message_id: String,
     context_id: Option<String>,
+    tool_task: Option<one_shot::OneShotRequest>,
 }
 
 impl TaskSubmission {
@@ -67,7 +70,26 @@ impl TaskSubmission {
             prompt: prompt.to_owned(),
             message_id,
             context_id: None,
+            tool_task: None,
         })
+    }
+
+    /// One governed tool task; the request's idempotency key is the message identity.
+    pub fn tool_task(request: &one_shot::OneShotRequest) -> Self {
+        Self {
+            prompt: request.operation().to_owned(),
+            message_id: request.idempotency_key().to_owned(),
+            context_id: None,
+            tool_task: Some(request.clone()),
+        }
+    }
+
+    fn extension(&self) -> Option<&'static str> {
+        match (&self.context_id, &self.tool_task) {
+            (Some(_), _) => Some(CONTINUATION_EXTENSION),
+            (None, Some(_)) => Some(one_shot::TOOL_TASK_EXTENSION),
+            (None, None) => None,
+        }
     }
 
     pub fn continuing(prompt: &str, context_id: &str) -> Result<Self, &'static str> {
@@ -91,6 +113,7 @@ pub struct TaskSnapshot {
     pub usage: turn_usage::TurnUsage,
     /// The plan Arbora issued for this task, when the task carries one.
     pub plan: Option<plan_confirm::PlanBinding>,
+    pub tool_task: one_shot::ToolTaskMetadata,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -257,6 +280,7 @@ impl ArboraClient {
 }
 
 impl ArboraClient {
+    // contract: TUIG-RUNTIME-R002.1.3
     pub async fn submit_task(
         &self,
         submission: &TaskSubmission,
@@ -264,9 +288,7 @@ impl ArboraClient {
         if !self.authenticated && self.auth_mode != AuthMode::None {
             return Err("Submission requires a caller credential");
         }
-        if submission.context_id.is_some() {
-            self.require_continuation().await?;
-        }
+        self.require_submission_extension(submission).await?;
         let response = self.dispatch_submission(submission).await?;
         Self::activation_ok(&response, submission)?;
         let bytes = read_task_response(response)
@@ -285,10 +307,14 @@ impl ArboraClient {
     }
 
     fn submission_message(submission: &TaskSubmission) -> serde_json::Value {
+        let part = match &submission.tool_task {
+            Some(request) => request.message_part(),
+            None => serde_json::json!({"kind": "text", "text": submission.prompt}),
+        };
         let mut message = serde_json::json!({
             "kind": "message", "role": "user",
             "messageId": submission.message_id(),
-            "parts": [{"kind": "text", "text": submission.prompt}],
+            "parts": [part],
         });
         if let Some(context_id) = &submission.context_id {
             message["contextId"] = serde_json::json!(context_id);
@@ -308,8 +334,8 @@ impl ArboraClient {
             .post(url)
             .timeout(self.submission_timeout)
             .header("Idempotency-Key", submission.message_id());
-        if submission.context_id.is_some() {
-            request = request.header("X-A2A-Extensions", CONTINUATION_EXTENSION);
+        if let Some(extension) = submission.extension() {
+            request = request.header("X-A2A-Extensions", extension);
         }
         request
             .json(&serde_json::json!({
@@ -330,10 +356,9 @@ impl ArboraClient {
         if !response.status().is_success() {
             return Err(SUBMISSION_UNKNOWN);
         }
-        if submission.context_id.is_some() {
+        if let Some(extension) = submission.extension() {
             let mut activations = response.headers().get_all("X-A2A-Extensions").iter();
-            if activations.next().and_then(|value| value.to_str().ok())
-                != Some(CONTINUATION_EXTENSION)
+            if activations.next().and_then(|value| value.to_str().ok()) != Some(extension)
                 || activations.next().is_some()
             {
                 return Err(SUBMISSION_UNKNOWN);
@@ -342,33 +367,51 @@ impl ArboraClient {
         Ok(())
     }
 
-    async fn require_continuation(&self) -> Result<(), &'static str> {
+    async fn require_submission_extension(
+        &self,
+        submission: &TaskSubmission,
+    ) -> Result<(), &'static str> {
+        let unavailable = if submission.tool_task.is_some() {
+            one_shot::TOOL_TASK_UNAVAILABLE
+        } else {
+            CONTINUATION_UNAVAILABLE
+        };
+        match submission.extension() {
+            Some(extension) => self.require_extension(extension, unavailable).await,
+            None => Ok(()),
+        }
+    }
+
+    async fn require_extension(
+        &self,
+        uri: &str,
+        unavailable: &'static str,
+    ) -> Result<(), &'static str> {
         let response = self
             .http
             .get(self.card_url.clone())
             .send()
             .await
-            .map_err(|_| CONTINUATION_UNAVAILABLE)?;
+            .map_err(|_| unavailable)?;
         if !response.status().is_success() {
-            return Err(CONTINUATION_UNAVAILABLE);
+            return Err(unavailable);
         }
         let bytes = read_task_response(response)
             .await
-            .map_err(|_| CONTINUATION_UNAVAILABLE)?;
-        let card: serde_json::Value =
-            serde_json::from_slice(&bytes).map_err(|_| CONTINUATION_UNAVAILABLE)?;
+            .map_err(|_| unavailable)?;
+        let card: serde_json::Value = serde_json::from_slice(&bytes).map_err(|_| unavailable)?;
         let extensions = card
             .pointer("/capabilities/extensions")
             .and_then(|value| value.as_array())
-            .ok_or(CONTINUATION_UNAVAILABLE)?;
-        let mut matching = extensions.iter().filter(|extension| {
-            extension.get("uri").and_then(|value| value.as_str()) == Some(CONTINUATION_EXTENSION)
-        });
-        let extension = matching.next().ok_or(CONTINUATION_UNAVAILABLE)?;
+            .ok_or(unavailable)?;
+        let mut matching = extensions
+            .iter()
+            .filter(|extension| extension.get("uri").and_then(|value| value.as_str()) == Some(uri));
+        let extension = matching.next().ok_or(unavailable)?;
         if matching.next().is_some()
             || extension.get("required").and_then(|value| value.as_bool()) != Some(false)
         {
-            return Err(CONTINUATION_UNAVAILABLE);
+            return Err(unavailable);
         }
         Ok(())
     }
@@ -426,6 +469,7 @@ impl ArboraClient {
             output: task_output::TaskOutput::default(),
             usage: turn_usage::TurnUsage::default(),
             plan: None,
+            tool_task: one_shot::ToolTaskMetadata::default(),
         })
     }
 
@@ -524,5 +568,6 @@ fn parse_returned_task(request_id: &str, bytes: &[u8]) -> Result<TaskSnapshot, &
         state,
         terminal_event,
         plan: plan_confirm::PlanBinding::from_task(task).ok(),
+        tool_task: one_shot::ToolTaskMetadata::from_task(task),
     })
 }
