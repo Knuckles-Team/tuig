@@ -7,12 +7,15 @@ use tuig_native::coding_approval::{ApprovalPreview, Choice};
 /// One request waiting for the person; dropping it answers deny.
 pub struct PendingApproval {
     preview: ApprovalPreview,
-    reply: oneshot::Sender<Choice>,
+    reply: Option<oneshot::Sender<Choice>>,
 }
 
 impl PendingApproval {
     pub fn new(preview: ApprovalPreview, reply: oneshot::Sender<Choice>) -> Self {
-        Self { preview, reply }
+        Self {
+            preview,
+            reply: Some(reply),
+        }
     }
 
     /// Draw the exact preview over the lower part of the session.
@@ -30,13 +33,15 @@ impl PendingApproval {
     }
 
     /// `y` approves and `n` denies; any other key leaves the request pending.
-    pub fn answer(self, key: KeyEvent) -> Result<Choice, Self> {
+    pub fn answer(&mut self, key: KeyEvent) -> Option<Choice> {
         let choice = match key.code {
             KeyCode::Char('y') => Choice::Approve,
             KeyCode::Char('n') | KeyCode::Esc => Choice::Deny,
-            _ => return Err(self),
+            _ => return None,
         };
-        let _ = self.reply.send(choice);
-        Ok(choice)
+        if let Some(reply) = self.reply.take() {
+            let _ = reply.send(choice);
+        }
+        Some(choice)
     }
 }

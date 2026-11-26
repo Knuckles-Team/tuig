@@ -497,8 +497,8 @@ impl UiState {
         if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
             return true;
         }
-        if let Some(pending) = self.approval.take() {
-            self.answer_approval(pending, key);
+        if self.approval.is_some() {
+            self.answer_approval(key);
             return false;
         }
         if self.composer.open {
@@ -508,13 +508,14 @@ impl UiState {
         self.global_key(key, channels.cancel)
     }
 
-    fn answer_approval(&mut self, pending: PendingApproval, key: KeyEvent) {
-        match pending.answer(key) {
-            Ok(choice) => {
-                self.status =
-                    format!("Request answered: {choice:?}. Local turn running... c: cancel");
-            }
-            Err(pending) => self.approval = Some(pending),
+    fn answer_approval(&mut self, key: KeyEvent) {
+        if let Some(choice) = self
+            .approval
+            .as_mut()
+            .and_then(|pending| pending.answer(key))
+        {
+            self.approval = None;
+            self.status = format!("Request answered: {choice:?}. Local turn running... c: cancel");
         }
     }
 
