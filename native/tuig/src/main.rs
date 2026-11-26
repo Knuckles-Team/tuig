@@ -14,6 +14,7 @@ use tuig_native::{
     ArboraClient, AuthMode, SUBMISSION_UNKNOWN, TaskSnapshot, TaskSubmission,
     correlation::{TaskCorrelation, TaskState},
     one_shot::{self, OneShotRequest},
+    workstream,
 };
 
 mod cli;
@@ -607,6 +608,7 @@ Environment:
   AGENT_URL                        Endpoint (default: http://localhost:8000).
   AGENT_BEARER_TOKEN               Caller credential; required for remote access.
   AGENT_AUTH_MODE                  bearer (default), or none for local loopback.
+  AGENT_WORKSTREAM                 Attach a local coding session to the workstream.
   AGENT_TASK_ID                    Existing task to read; does not resume chat.
   AGENT_SUBMISSION_TIMEOUT_SECONDS Submission timeout, 1..900 (default: 300).
   AGENT_INCLUDE_COMMITTED_EVENT    Include committed event reads: true or false.
@@ -778,12 +780,42 @@ fn theme_selection() -> ThemeSelection {
     )
 }
 
+/// Run the local coding session, attached to the caller's workstream when
+/// `AGENT_WORKSTREAM` is set and `AGENT_URL` names an Arbora. A refused or unserved attach never blocks it.
+async fn run_local(mut local: local_runtime::Options) -> Result<(), &'static str> {
+    let credential = caller_credential().ok();
+    let client = env::var_os("AGENT_WORKSTREAM")
+        .filter(|_| !local.headless)
+        .and_then(|_| env::var("AGENT_URL").ok())
+        .zip(credential)
+        .and_then(|(endpoint, (token, mode))| {
+            remote_client(&endpoint, token.as_deref(), mode).ok()
+        });
+    let root = local
+        .root
+        .clone()
+        .or_else(|| {
+            env::current_dir()
+                .ok()
+                .map(|dir| dir.to_string_lossy().into_owned())
+        })
+        .unwrap_or_default();
+    let (stream, context) = workstream::attach_optional(client.as_ref(), &root).await;
+    local.context = context;
+    let result = local_runtime::run(local, theme_selection()).await;
+    let notice = workstream::close_optional(client.as_ref(), stream).await;
+    if !notice.is_empty() {
+        report_error(&notice);
+    }
+    result
+}
+
 async fn launch_app(args: Vec<OsString>) -> Result<(), &'static str> {
     if let Some(local) = local_runtime::options(&args)? {
         if env::var_os("AGENT_TASK_ID").is_some() {
             return Err("Local runtime cannot be combined with AGENT_TASK_ID");
         }
-        return local_runtime::run(local, theme_selection()).await;
+        return run_local(local).await;
     }
     let endpoint = env::var("AGENT_URL").unwrap_or_else(|_| "http://localhost:8000".to_owned());
     if cli::one_shot(&args)? {

@@ -48,12 +48,17 @@ def native(
     )
 
 
-def completed_task(sandbox: Sandbox) -> tuple[str, str]:
-    """Run one real chat turn; return its task id and the nonce its reply echoes."""
+def completed_headless(sandbox: Sandbox) -> tuple[subprocess.CompletedProcess, str]:
     nonce = "proof-" + uuid.uuid4().hex
     result = native("--headless", "--prompt", f"hello {nonce}", sandbox=sandbox)
     assert result.returncode == 0, result.stdout + result.stderr
     assert "State: completed" in result.stdout and nonce in result.stdout
+    return result, nonce
+
+
+def completed_task(sandbox: Sandbox) -> tuple[str, str]:
+    """Run one real chat turn; return its task id and the nonce its reply echoes."""
+    result, nonce = completed_headless(sandbox)
     task_id = next(
         line.removeprefix("Task ID: ")
         for line in result.stdout.splitlines()
@@ -150,8 +155,10 @@ def compose(sandbox: Sandbox, draft: str, expected: str) -> str:
         terminal.wait_until(lambda: "Compose one task" in terminal.shown())
         terminal.send(draft.encode() + b"\r")
         terminal.wait_until(
-            lambda: expected in terminal.shown()
-            and "Reading served" not in terminal.shown()
+            lambda: (
+                expected in terminal.shown()
+                and "Reading served" not in terminal.shown()
+            )
         )
         shown = terminal.shown()
         terminal.send(b"\x1b")
@@ -175,7 +182,11 @@ def test_live_model_command_lists_the_served_profiles(sandbox: Sandbox) -> None:
 def test_live_commands_render_served_operations_and_name_unserved_ones(
     sandbox: Sandbox,
 ) -> None:
-    assert {"fleet.status", "fleet.catalog.list", "prompts.list"} <= sandbox.operations()
+    assert {
+        "fleet.status",
+        "fleet.catalog.list",
+        "prompts.list",
+    } <= sandbox.operations()
     served = compose(sandbox, "/mcp", "children")
     assert "fleet.status" in served
     assert not {"skills.list", "cron.list", "pipelines.list"} & sandbox.operations(), (
@@ -198,3 +209,32 @@ def test_live_usage_read_is_refused_and_the_terminal_reads_unavailable(
     assert refused.value.code == 503, "bind R012.6.2 to a served usage proof"
     shown = compose(sandbox, "/usage", "Session")
     assert "Tokens: unavailable" in shown and "Cost: unavailable" in shown
+
+
+def test_live_release_serves_no_workstream_operation(sandbox: Sandbox) -> None:
+    served = sandbox.operations() & {
+        "workstream.attach",
+        "workstream.checkpoint",
+        "workstream.detach",
+    }
+    assert not served, "bind R013.1 and R013.2 to a served workstream proof"
+
+
+def test_live_continuation_refuses_while_the_release_serves_no_history_extension(
+    sandbox: Sandbox,
+) -> None:
+    card = sandbox.get("/.well-known/agent-card.json")
+    advertised = [item["uri"] for item in card["capabilities"].get("extensions", [])]
+    assert not advertised, "bind R012.3.2 and R012.3.2.2 to a served resume proof"
+    result, _nonce = completed_headless(sandbox)
+    context = next(
+        line.removeprefix("Context ID: ")
+        for line in result.stdout.splitlines()
+        if line.startswith("Context ID: ")
+    )
+    resumed = native(
+        "--headless", "--prompt", "again", "--continue", context, sandbox=sandbox
+    )
+    assert resumed.returncode != 0
+    assert "Durable context continuation is unavailable" in resumed.stderr
+    assert "Task ID" not in resumed.stdout

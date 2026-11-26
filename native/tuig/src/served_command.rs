@@ -125,7 +125,7 @@ fn unavailable(spec: &CommandSpec, refusal: &ReadRefusal) -> String {
 }
 
 fn render(value: &Value) -> String {
-    let text = serde_json::to_string_pretty(value).unwrap_or_default();
+    let text = format!("{value:#}");
     let mut shown: String = text
         .chars()
         .filter(|c| !c.is_control() || *c == '\n')
@@ -215,9 +215,11 @@ mod tests {
     #[test]
     fn missing_usage_figures_read_unavailable_never_zero() {
         let none = usage(&json!({}), "Requests: unavailable");
-        assert!(none.contains("Tokens: unavailable") && none.contains("Cost: unavailable"));
+        assert!(none.contains("Tokens: unavailable"));
+        assert!(none.contains("Cost: unavailable"));
         let some = usage(&json!({"totals": {"total_tokens": 12.0, "cost": 0.5}}), "t");
-        assert!(some.contains("Tokens: 12") && some.contains("Cost: 0.5"));
+        assert!(some.contains("Tokens: 12"));
+        assert!(some.contains("Cost: 0.5"));
         assert!(usage_unavailable("t", &ReadRefusal::Unavailable).contains("usage.read"));
     }
 }

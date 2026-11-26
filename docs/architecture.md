@@ -56,6 +56,7 @@ line and the terminal views.
 | `task_stream` | Task observation transport |
 | `terminal_event` | Terminal event model |
 | `turn_usage` | Turn usage accounting |
+| `workstream` | Workstream attach, exit checkpoint and detach for a coding session |
 
 The binary in `main.rs` declares these private modules.
 

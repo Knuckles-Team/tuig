@@ -12,6 +12,8 @@ pub struct Options {
     pub root: Option<String>,
     pub prompt: Option<String>,
     pub headless: bool,
+    /// Workstream context shown above the first prompt of an interactive session.
+    pub context: Option<String>,
 }
 
 // contract: TUIG-RUNTIME-R011.14
@@ -47,6 +49,7 @@ pub fn options(args: &[OsString]) -> Result<Option<Options>, &'static str> {
         root: flags.root,
         prompt: flags.prompt,
         headless: flags.headless,
+        context: None,
     }))
 }
 

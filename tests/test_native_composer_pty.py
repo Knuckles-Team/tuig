@@ -216,3 +216,14 @@ def test_native_observer_cannot_compose_or_cancel() -> None:
         assert all(body["method"] == "tasks/get" for body in mutations(terminal))
         assert "Compose one task" not in terminal.shown()
         assert "Cancel selected remote task?" not in terminal.shown()
+
+
+@pytest.mark.spec("TUIG-RUNTIME-R012.4.3")
+def test_native_served_command_names_the_unserved_operation_and_sends_no_write() -> (
+    None
+):
+    with composer_terminal() as terminal:
+        terminal.send(b"/mcp\r")
+        terminal.wait_until(lambda: "fleet.status" in terminal.shown())
+        assert "unavailable" in terminal.shown()
+        assert mutations(terminal) == []
