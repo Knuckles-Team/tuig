@@ -154,3 +154,42 @@ async fn a_command_that_needs_an_argument_sends_nothing_without_one() {
     assert!(notice.contains("needs an argument"), "{notice}");
     assert!(requests.lock().unwrap().is_empty());
 }
+
+// spec: TUIG-RUNTIME-R012.4.3
+#[tokio::test]
+async fn an_unserved_usage_read_reports_unavailable_session_figures_beside_the_turn() {
+    let (url, requests) = fixture(&[("fleet.status", json!({}))], "alpha").await;
+    let notice = ServedCommand::parse("/usage")
+        .unwrap()
+        .run(&client(&url), &ModelChoice::default(), "turn text")
+        .await;
+    assert!(
+        notice.contains("usage.read") && notice.contains("turn text"),
+        "{notice}"
+    );
+    assert!(
+        notice.contains("Tokens: unavailable; Cost: unavailable"),
+        "{notice}"
+    );
+    assert!(
+        requests
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|(path, _)| path == "/api/v1/registry")
+    );
+}
+
+// spec: TUIG-RUNTIME-R012.4.3
+#[tokio::test]
+async fn a_kb_query_is_sent_as_the_query_parameter_and_a_served_answer_is_rendered() {
+    let (url, requests) = fixture(&[("retrieval.search", json!({"hits": []}))], "alpha").await;
+    let notice = ServedCommand::parse("/kb find me")
+        .unwrap()
+        .run(&client(&url), &ModelChoice::default(), "")
+        .await;
+    assert!(notice.contains("hits"), "{notice}");
+    let sent = requests.lock().unwrap();
+    let body: Value = serde_json::from_str(&sent.last().unwrap().1).unwrap();
+    assert_eq!(body["query"], "find me");
+}

@@ -77,3 +77,17 @@ async fn a_refused_exit_checkpoint_is_reported_and_does_not_detach() {
     assert!(notice.contains("workstream.checkpoint"), "{notice}");
     assert_eq!(posted(&requests).len(), 1, "only the attach reached Arbora");
 }
+
+#[tokio::test]
+async fn a_refused_detach_after_a_recorded_checkpoint_is_reported() {
+    let served = [
+        ("workstream.attach", json!({"context": "c"})),
+        ("workstream.checkpoint", json!({"ok": true})),
+    ];
+    let (url, requests) = fixture(&served, "alpha").await;
+    let client = client(&url);
+    let (stream, _) = workstream::open(&client, "/r").await;
+    let notice = workstream::close(&client, stream.unwrap()).await;
+    assert!(notice.contains("Workstream unavailable"), "{notice}");
+    assert_eq!(posted(&requests).len(), 2);
+}
