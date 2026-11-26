@@ -141,3 +141,60 @@ def test_live_release_serves_no_host_log_launch(sandbox: Sandbox) -> None:
     with pytest.raises(HTTPError) as refused:
         build_opener(ProxyHandler({})).open(request, timeout=30)
     assert refused.value.code in {404, 405}, "bind R002.4 and R002.6 to a served proof"
+
+
+def compose(sandbox: Sandbox, draft: str, expected: str) -> str:
+    """Type one slash command into the real composer and return the screen once shown."""
+    terminal = NativeTerminal(sandbox.url, [], None)
+    try:
+        terminal.wait_until(lambda: "Compose one task" in terminal.shown())
+        terminal.send(draft.encode() + b"\r")
+        terminal.wait_until(
+            lambda: expected in terminal.shown()
+            and "Reading served" not in terminal.shown()
+        )
+        shown = terminal.shown()
+        terminal.send(b"\x1b")
+        terminal.send(b"q")
+        return shown
+    finally:
+        terminal.close()
+
+
+@pytest.mark.spec("TUIG-RUNTIME-R012.2.2")
+def test_live_model_command_lists_the_served_profiles(sandbox: Sandbox) -> None:
+    served = sandbox.post("/api/v1/ops/models.list", {})["result"]["value"]
+    assert [model["id"] for model in served["models"]] == ["sandbox-model"]
+    shown = compose(sandbox, "/model", "Model profiles:")
+    assert "sandbox-model" in shown
+    selected = compose(sandbox, "/model sandbox-model", "preference set")
+    assert "sandbox-model" in selected
+
+
+@pytest.mark.spec("TUIG-RUNTIME-R012.4.3")
+def test_live_commands_render_served_operations_and_name_unserved_ones(
+    sandbox: Sandbox,
+) -> None:
+    assert {"fleet.status", "fleet.catalog.list", "prompts.list"} <= sandbox.operations()
+    served = compose(sandbox, "/mcp", "children")
+    assert "fleet.status" in served
+    assert not {"skills.list", "cron.list", "pipelines.list"} & sandbox.operations(), (
+        "bind the commands whose operations are now served"
+    )
+    shown = compose(sandbox, "/cron", "unavailable")
+    assert "cron.list" in shown
+
+
+def test_live_usage_read_is_refused_and_the_terminal_reads_unavailable(
+    sandbox: Sandbox,
+) -> None:
+    request = Request(
+        sandbox.url + "/api/v1/ops/usage.read",
+        data=b"{}",
+        headers={"Content-Type": "application/json"},
+    )
+    with pytest.raises(HTTPError) as refused:
+        build_opener(ProxyHandler({})).open(request, timeout=30)
+    assert refused.value.code == 503, "bind R012.6.2 to a served usage proof"
+    shown = compose(sandbox, "/usage", "Session")
+    assert "Tokens: unavailable" in shown and "Cost: unavailable" in shown

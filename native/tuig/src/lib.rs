@@ -9,6 +9,7 @@ pub mod host_router;
 pub mod app {
     pub use crate::host_logs::{HostLaunchReceipt, HostLogReader, run_host_terminal};
 }
+pub mod model_choice;
 pub mod one_shot;
 pub mod operation_command;
 pub mod plan_confirm;
@@ -16,6 +17,7 @@ pub mod public_run_events;
 pub mod recovery;
 pub mod run_inspector;
 pub mod run_inspector_client;
+pub mod served_command;
 pub mod task_history;
 pub mod task_output;
 pub mod task_stream;
@@ -57,6 +59,7 @@ pub struct TaskSubmission {
     message_id: String,
     context_id: Option<String>,
     tool_task: Option<one_shot::OneShotRequest>,
+    model_profile: Option<String>,
 }
 
 impl TaskSubmission {
@@ -72,6 +75,7 @@ impl TaskSubmission {
             message_id,
             context_id: None,
             tool_task: None,
+            model_profile: None,
         })
     }
 
@@ -82,6 +86,7 @@ impl TaskSubmission {
             message_id: request.idempotency_key().to_owned(),
             context_id: None,
             tool_task: Some(request.clone()),
+            model_profile: None,
         }
     }
 
@@ -100,6 +105,12 @@ impl TaskSubmission {
         Ok(submission)
     }
 
+    /// Send the caller's model preference; Arbora decides which profile runs.
+    pub fn with_model_profile(mut self, profile: Option<String>) -> Self {
+        self.model_profile = profile;
+        self
+    }
+
     pub fn message_id(&self) -> &str {
         &self.message_id
     }
@@ -115,6 +126,8 @@ pub struct TaskSnapshot {
     /// The plan Arbora issued for this task, when the task carries one.
     pub plan: Option<plan_confirm::PlanBinding>,
     pub tool_task: one_shot::ToolTaskMetadata,
+    /// The profile the task metadata names, which may differ from the preference.
+    pub model_profile: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -320,6 +333,9 @@ impl ArboraClient {
         if let Some(context_id) = &submission.context_id {
             message["contextId"] = serde_json::json!(context_id);
         }
+        if let Some(profile) = &submission.model_profile {
+            message["metadata"] = serde_json::json!({ model_choice::PREFERENCE_KEY: profile });
+        }
         message
     }
 
@@ -471,6 +487,7 @@ impl ArboraClient {
             usage: turn_usage::TurnUsage::default(),
             plan: None,
             tool_task: one_shot::ToolTaskMetadata::default(),
+            model_profile: None,
         })
     }
 
@@ -570,5 +587,6 @@ fn parse_returned_task(request_id: &str, bytes: &[u8]) -> Result<TaskSnapshot, &
         terminal_event,
         plan: plan_confirm::PlanBinding::from_task(task).ok(),
         tool_task: one_shot::ToolTaskMetadata::from_task(task),
+        model_profile: model_choice::displayed_profile(task),
     })
 }
