@@ -280,6 +280,7 @@ impl ArboraClient {
 }
 
 impl ArboraClient {
+    // contract: TUIG-RUNTIME-R002.1.3
     pub async fn submit_task(
         &self,
         submission: &TaskSubmission,
@@ -287,17 +288,7 @@ impl ArboraClient {
         if !self.authenticated && self.auth_mode != AuthMode::None {
             return Err("Submission requires a caller credential");
         }
-        if submission.context_id.is_some() {
-            self.require_extension(CONTINUATION_EXTENSION, CONTINUATION_UNAVAILABLE)
-                .await?;
-        }
-        if submission.tool_task.is_some() {
-            self.require_extension(
-                one_shot::TOOL_TASK_EXTENSION,
-                one_shot::TOOL_TASK_UNAVAILABLE,
-            )
-            .await?;
-        }
+        self.require_submission_extension(submission).await?;
         let response = self.dispatch_submission(submission).await?;
         Self::activation_ok(&response, submission)?;
         let bytes = read_task_response(response)
@@ -374,6 +365,21 @@ impl ArboraClient {
             }
         }
         Ok(())
+    }
+
+    async fn require_submission_extension(
+        &self,
+        submission: &TaskSubmission,
+    ) -> Result<(), &'static str> {
+        let unavailable = if submission.tool_task.is_some() {
+            one_shot::TOOL_TASK_UNAVAILABLE
+        } else {
+            CONTINUATION_UNAVAILABLE
+        };
+        match submission.extension() {
+            Some(extension) => self.require_extension(extension, unavailable).await,
+            None => Ok(()),
+        }
     }
 
     async fn require_extension(
