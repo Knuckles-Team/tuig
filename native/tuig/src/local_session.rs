@@ -807,10 +807,12 @@ mod backpressure_tests {
             };
             let frontend = async {
                 client.initialize("/workspace").await.unwrap();
+                let mut router = HostRouter::new("session", "/workspace", Capability::ALL.into());
                 let status = timeout(
                     Duration::from_secs(1),
                     turn(
                         &mut client,
+                        &mut router,
                         "prompt",
                         &updates,
                         &mut cancel_rx,
