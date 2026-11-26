@@ -268,12 +268,16 @@ jobs:
           uv run --frozen --no-sync --with agent-client-protocol==0.11.0 pytest tests/test_native_local_session_pty.py tests/test_native_composer_pty.py tests/test_native_public_details_pty.py tests/test_native_spatial_graph_pty.py tests/test_native_headless.py tests/test_native_continuation.py tests/test_native_acp.py tests/test_one_shot_task_contract.py tests/test_native_coding_session_pty.py tests/test_native_workspace_root.py tests/test_native_environment_pty.py -q --no-cov -p no:randomly --junitxml="$COVERAGE_RESULTS"
           python3 scripts/verify_live_outcomes.py "$COVERAGE_RESULTS"
           cargo +nightly llvm-cov report --manifest-path "$manifest" --json --summary-only --output-path "$RUNNER_TEMP/native-coverage.json"
+          # Line-level branch data so a shortfall names the exact uncovered branches.
+          cargo +nightly llvm-cov report --manifest-path "$manifest" --lcov --output-path "$RUNNER_TEMP/native-coverage.lcov"
           python3 scripts/verify_native_coverage.py "$RUNNER_TEMP/native-coverage.json"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: native-coverage
-          path: ${{ runner.temp }}/native-coverage.json
+          path: |
+            ${{ runner.temp }}/native-coverage.json
+            ${{ runner.temp }}/native-coverage.lcov
 
   docs-strict:
     runs-on: ubuntu-latest

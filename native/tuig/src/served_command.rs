@@ -116,7 +116,7 @@ fn unavailable(spec: &CommandSpec, refusal: &ReadRefusal) -> String {
     let cause = match refusal {
         ReadRefusal::Denied => "refused this caller",
         ReadRefusal::Timeout => "did not answer in time",
-        _ => "does not serve it to this caller",
+        ReadRefusal::Unavailable | ReadRefusal::WrongRun => "does not serve it to this caller",
     };
     format!(
         "{} unavailable: Arbora {cause}; operation {}.",
