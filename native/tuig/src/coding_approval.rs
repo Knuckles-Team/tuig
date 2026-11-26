@@ -117,12 +117,18 @@ pub enum ApprovalError {
     AlreadyAnswered,
     GatewayUnavailable,
     InvalidMetadata,
+    PathOutsideRoot,
+    ApprovalDenied,
+    RootNotTrusted,
 }
 
 pub struct ApprovalPreview {
     request: ApprovalRequest,
 }
 impl ApprovalPreview {
+    pub fn request(&self) -> &ApprovalRequest {
+        &self.request
+    }
     // contract: TUIG-RUNTIME-R011.13
     pub fn text(&self) -> String {
         let request = &self.request;
@@ -289,6 +295,25 @@ impl CodingApprovalState {
     }
     pub fn records(&self) -> &[DecisionRecord] {
         &self.records
+    }
+    pub fn session_id(&self) -> &str {
+        &self.session_id
+    }
+    pub fn workspace_root(&self) -> &str {
+        &self.workspace_root
+    }
+    pub fn pending_request_id(&self) -> Option<&str> {
+        self.pending
+            .as_ref()
+            .map(|pending| pending.request_id.as_str())
+    }
+    /// The on-screen evidence: metadata only, never file bodies or environment values.
+    pub fn evidence_text(&self) -> String {
+        self.records
+            .iter()
+            .map(DecisionRecord::text)
+            .collect::<Vec<_>>()
+            .join("\n\n")
     }
 }
 fn literal(value: &str) -> String {
