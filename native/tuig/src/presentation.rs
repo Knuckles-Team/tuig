@@ -205,7 +205,7 @@ mod tests {
         }
     }
 
-    // spec: TUIG-RUNTIME-R008.3, TUIG-RUNTIME-R008.3.1
+    // spec: TUIG-RUNTIME-R008.3, TUIG-RUNTIME-R008.3.1, TUIG-RUNTIME-R008.3.2
     #[test]
     fn canopy_border_text_meets_contrast_without_changing_other_themes() {
         for theme in THEMES.into_iter().chain(["unknown"]) {
