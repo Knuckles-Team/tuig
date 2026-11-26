@@ -112,7 +112,7 @@ async fn serve(responses: Vec<FixtureResponse>) -> (ArboraClient, tokio::task::J
     (client, server)
 }
 
-// spec: TUIG-RUNTIME-R002.11
+// spec: TUIG-RUNTIME-R002.11, TUIG-RUNTIME-R002.5
 #[tokio::test]
 async fn authenticated_reads_clear_authority_after_denial_without_effect_replay() {
     let (client, server) = serve(vec![
@@ -158,7 +158,7 @@ async fn disabled_expired_and_malformed_receipts_never_read() {
     }
 }
 
-// spec: TUIG-RUNTIME-R002.11
+// spec: TUIG-RUNTIME-R002.11, TUIG-RUNTIME-R002.5
 #[tokio::test]
 async fn oversized_and_malformed_batches_invalidate_binding() {
     for payload in [
@@ -174,7 +174,7 @@ async fn oversized_and_malformed_batches_invalidate_binding() {
     }
 }
 
-// spec: TUIG-RUNTIME-R002.11
+// spec: TUIG-RUNTIME-R002.11, TUIG-RUNTIME-R002.5
 #[tokio::test]
 async fn exact_retention_gap_stops_without_retry_and_other_conflicts_refuse() {
     use tuig_native::host_logs::{REFUSED, RETENTION_GAP};
@@ -251,6 +251,7 @@ async fn endpoint_binding_is_checked_before_reader_use() {
     server.await.unwrap();
 }
 
+// spec: TUIG-RUNTIME-R002.5
 #[tokio::test]
 async fn records_from_another_generation_are_refused() {
     let (client, server) = serve(vec![

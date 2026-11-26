@@ -15,6 +15,7 @@ pytestmark = [
     pytest.mark.spec(
         "TUIG-RUNTIME-R008.3",
         "TUIG-RUNTIME-R008.3.1",
+        "TUIG-RUNTIME-R008.3.2",
         "TUIG-RUNTIME-R010.12.1",
         "TUIG-RUNTIME-R010.12.1.1",
         "TUIG-RUNTIME-R010.12.1.2",
