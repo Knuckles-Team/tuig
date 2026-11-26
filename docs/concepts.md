@@ -26,5 +26,15 @@ protocol acceptance remain open.
 
 **Headless:** native unary observation without a terminal renderer.
 
+## Native concept owners
+
+| Concept | Owning source |
+|---|---|
+| tuig | `native/tuig/src/main.rs` |
+| Arbora client | `native/tuig/src/lib.rs` |
+| A2A | `native/tuig/src/task_stream.rs` |
+| ACP | `native/tuig/src/acp.rs` |
+| Headless | `native/tuig/src/headless.rs` |
+
 See the [ecosystem glossary](glossary.md) for shared terms. The shared Pages theme
 owns that generated glossary; keep native terms on this page.

@@ -24,3 +24,29 @@ explicit confirmation. Existing credentials and authorization remain enforced.
 The Python/Textual runtime has been removed. Native interactive composition,
 streaming, approval attachment and durable resume remain open requirements,
 not features supplied by a second frontend.
+
+## Module organization
+
+The library crate `tuig_native` declares one public module per responsibility in
+`native/tuig/src/lib.rs`. The binary in `native/tuig/src/main.rs` owns the command
+line and the terminal views.
+
+| Module | Responsibility |
+|---|---|
+| `acp` | Experimental local headless turn over an owned backend child |
+| `app` | Host terminal entry points re-exported for the binary |
+| `coding_approval` | Approval requests, previews and fail-closed decisions |
+| `correlation` | Task, context and run identity binding |
+| `execution_graph` | Validated read of the run execution graph |
+| `host_logs` | Host launch receipts and log reads |
+| `operation_command` | Served operation invocation from the command line |
+| `plan_confirm` | Plan confirmation and its explicit decision |
+| `public_run_events` | Public run event reads |
+| `recovery` | Resume after an unknown submission outcome |
+| `run_inspector` | Read-only run inspector state |
+| `run_inspector_client` | Served run reads for the inspector |
+| `task_history` | Paged task history reads |
+| `task_output` | Task output extraction and bounds |
+| `task_stream` | Task observation transport |
+| `terminal_event` | Terminal event model |
+| `turn_usage` | Turn usage accounting |
