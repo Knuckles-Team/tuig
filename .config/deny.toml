@@ -1,0 +1,10 @@
+# Fail-closed dependency scan for the native terminal (TUIG-RUNTIME-R015.57).
+# Every matched advisory fails; the ignore list stays empty unless a reviewed
+# acceptance with an owner and an expiry date is added in the same change.
+
+[graph]
+all-features = true
+
+[advisories]
+ignore = []
+yanked = "deny"

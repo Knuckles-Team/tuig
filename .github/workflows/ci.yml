@@ -109,11 +109,13 @@ jobs:
     needs: [changes]
     if: always() && (github.event_name != 'pull_request' || needs.changes.outputs.native == 'true')
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 10 || 60 }}
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 15 || 60 }}
     env:
       CARGO_BUILD_JOBS: 2
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: native/tuig
@@ -149,10 +151,90 @@ jobs:
           uv run --frozen --no-sync --with agent-client-protocol==0.11.0 python -m pytest tests/test_native_acp.py -q -rP --no-cov --junitxml="$ACP_RESULTS"
           uv run --frozen --no-sync python -c 'import os, xml.etree.ElementTree as ET; cases = ET.parse(os.environ["ACP_RESULTS"]).findall(".//testcase"); assert len(cases) == 13 and all(case.find(tag) is None for case in cases for tag in ("skipped", "failure", "error")), "All thirteen ACP lifecycle and helper-resolution cases must pass without skips"'
 
+      - name: Full Python suite outcomes without unexplained skips
+        env:
+          TUI_NATIVE_TEST_BINARY: ${{ github.workspace }}/native/tuig/target/debug/tuig
+          SUITE_RESULTS: ${{ runner.temp }}/suite-results.xml
+        run: |
+          set -euo pipefail
+          uv run --frozen --no-sync --with agent-client-protocol==0.11.0 python -m pytest tests -q -rs --no-cov -p no:randomly --junitxml="$SUITE_RESULTS" || true
+          python3 scripts/verify_suite_outcomes.py "$SUITE_RESULTS"
+
+  cargo-advisories:
+    needs: [changes]
+    if: always() && (github.event_name != 'pull_request' || needs.changes.outputs.native == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny@0.20.2
+      - name: Scan the locked native dependency graph for advisories
+        run: cargo deny --manifest-path native/tuig/Cargo.toml --locked --config .config/deny.toml check advisories
+
+  native-coverage:
+    needs: [changes]
+    if: always() && (github.event_name != 'pull_request' || needs.changes.outputs.native == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 25 || 60 }}
+    env:
+      CARGO_BUILD_JOBS: 2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native/tuig
+      - name: Nightly toolchain with coverage instrumentation
+        run: rustup toolchain install nightly --profile minimal --component llvm-tools-preview
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+      - name: Measure native line and branch coverage
+        run: |
+          set -euo pipefail
+          cargo +nightly llvm-cov --branch --locked --manifest-path native/tuig/Cargo.toml --json --summary-only --output-path "$RUNNER_TEMP/native-coverage.json"
+          python3 scripts/verify_native_coverage.py "$RUNNER_TEMP/native-coverage.json" --branches-advisory
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-coverage
+          path: ${{ runner.temp }}/native-coverage.json
+
+  docs-strict:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Checkout the shared documentation theme
+        uses: actions/checkout@v4
+        with:
+          repository: Knuckles-Team/pipelines
+          ref: main
+          path: .pipeline-theme
+          persist-credentials: false
+          sparse-checkout: |
+            templates/mkdocs-theme
+            scripts/sync_mkdocs_theme.py
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          python-version: '3.14'
+      - name: Verify the theme and build the documentation strictly
+        run: |
+          set -euo pipefail
+          python3 .pipeline-theme/scripts/sync_mkdocs_theme.py check --root "$GITHUB_WORKSPACE" --source-root .pipeline-theme --content-source docs
+          uvx --python 3.14 --with mkdocs-material==9.7.6 --with mkdocs-awesome-pages-plugin==2.10.1 mkdocs build --strict -d "$RUNNER_TEMP/site"
+
   ci-required:
     name: CI required
     if: always()
-    needs: [gates, main-gates, full, native-wheels, native-checks]
+    needs: [gates, main-gates, full, native-wheels, native-checks, cargo-advisories, native-coverage, docs-strict]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
