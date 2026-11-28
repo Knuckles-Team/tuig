@@ -176,3 +176,4 @@ Tasks follow the rows in dependency order. A task names one requirement row and 
 - [ ] T170 [US5] TUIG-RUNTIME-R013.1 Attach at session open and checkpoint at exit.
 - [ ] T171 [US5] TUIG-RUNTIME-R013.2 Hot-path proof: a harness checkpoint reaches the terminal.
 - [ ] T172 [US5] TUIG-RUNTIME-R013 Workstream peer.
+- [ ] T173 [US5] TUIG-RUNTIME-R017 The shared state-machine census runs on this repository in staged mode.

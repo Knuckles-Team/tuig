@@ -53,6 +53,12 @@ python_version = "3.12"
 ignore_missing_imports = true
 check_untyped_defs = true
 
+[tool.pipelines_hooks.state_machine]
+paths = ["native/tuig/src"]
+exclude = ["**/fixtures/**"]
+languages = ["rust"]
+mode = "staged"
+
 [tool.pipelines_hooks.ste]
 paths = ["README.md", "AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md", "CHANGELOG.md", "docs", "specs"]
 exempt = []
